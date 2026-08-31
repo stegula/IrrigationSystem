@@ -89,6 +89,8 @@ class PersistentWebPortal final : public Component,
   void handle_relay_();
   void handle_wifi_scan_();
   void handle_wifi_connect_();
+  void handle_wifi_forget_();
+  bool erase_wifi_credentials_();
   void handle_time_set_();
   void handle_schedule_save_();
   void handle_schedule_stop_();

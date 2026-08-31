@@ -1,10 +1,12 @@
 #include "persistent_web_portal.h"
 
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <esp_netif.h>
+#include <nvs.h>
 #include <sys/time.h>
 #include <vector>
 
@@ -110,7 +112,10 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
       </div>
       <label for="password">Password</label>
       <input id="password" type="password" maxlength="64" autocomplete="current-password" placeholder="Leave empty for an open network">
-      <p><button type="submit" id="connect">Connect</button></p>
+      <div class="actions">
+        <button type="submit" id="connect">Connect</button>
+        <button type="button" class="stop" id="forget-wifi" onclick="forgetWifi()">Forget Home Wi-Fi</button>
+      </div>
       <div id="wifi-message" class="message muted"></div>
     </form>
   </section>
@@ -270,6 +275,24 @@ async function scanWifi() {
   }
 }
 
+async function forgetWifi() {
+  if (!confirm('Forget the saved home Wi-Fi network? The Irrigation Controller access point will remain available.'))
+    return;
+  const button = document.getElementById('forget-wifi');
+  const message = document.getElementById('wifi-message');
+  button.disabled = true;
+  try {
+    await request('/api/wifi/forget', {method: 'POST'});
+    message.textContent = 'Home Wi-Fi forgotten. Continue using the Irrigation Controller access point.';
+    message.className = 'message ok';
+    document.getElementById('password').value = '';
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = 'message error';
+    button.disabled = false;
+  }
+}
+
 document.getElementById('time-form').addEventListener('submit', async event => {
   event.preventDefault();
   const button = document.getElementById('set-time');
@@ -418,6 +441,7 @@ void PersistentWebPortal::setup() {
   this->server_.on("/api/relay", HTTP_POST, [this]() { this->handle_relay_(); });
   this->server_.on("/api/wifi/scan", HTTP_GET, [this]() { this->handle_wifi_scan_(); });
   this->server_.on("/api/wifi/connect", HTTP_POST, [this]() { this->handle_wifi_connect_(); });
+  this->server_.on("/api/wifi/forget", HTTP_POST, [this]() { this->handle_wifi_forget_(); });
   this->server_.on("/api/time", HTTP_POST, [this]() { this->handle_time_set_(); });
   this->server_.on("/api/schedule", HTTP_POST, [this]() { this->handle_schedule_save_(); });
   this->server_.on("/api/schedule/stop", HTTP_POST, [this]() { this->handle_schedule_stop_(); });
@@ -823,6 +847,55 @@ void PersistentWebPortal::handle_wifi_connect_() {
   this->connect_requested_ = true;
 
   this->server_.send(202, "application/json", F("{\"ok\":true,\"status\":\"connecting\"}"));
+}
+
+void PersistentWebPortal::handle_wifi_forget_() {
+  if (!this->erase_wifi_credentials_()) {
+    this->send_json_error_(500, "Could not erase the saved home Wi-Fi network");
+    return;
+  }
+
+  this->server_.send(200, "application/json", F("{\"ok\":true}"));
+  // Let the HTTP response leave through either interface before disconnecting
+  // the station. The direct AP remains active throughout this operation.
+  this->set_timeout("forget_home_wifi", 750, [this]() {
+    this->pending_credentials_ = false;
+    this->connect_requested_ = false;
+    this->pending_ssid_.clear();
+    this->pending_password_.clear();
+    this->wifi_->clear_sta();
+    const esp_err_t result = esp_wifi_disconnect();
+    if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_CONNECT)
+      ESP_LOGW(TAG, "Could not disconnect forgotten home Wi-Fi (%s)", esp_err_to_name(result));
+    this->restore_ap_requested_ = true;
+    ESP_LOGI(TAG, "Saved home Wi-Fi network forgotten");
+  });
+}
+
+bool PersistentWebPortal::erase_wifi_credentials_() {
+  if (!global_preferences->sync() || global_preferences->nvs_handle == 0)
+    return false;
+
+  // ESPHome stores runtime-only Wi-Fi credentials under the fixed fallback
+  // key. Also erase the configured-network key for compatibility if the YAML
+  // is later extended with a station entry.
+  const uint32_t keys[] = {88491487UL, App.get_config_version_hash()};
+  for (uint32_t key : keys) {
+    char key_string[12];
+    snprintf(key_string, sizeof(key_string), "%lu", static_cast<unsigned long>(key));
+    const esp_err_t result = nvs_erase_key(global_preferences->nvs_handle, key_string);
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND) {
+      ESP_LOGW(TAG, "Could not erase Wi-Fi preference %s (%s)", key_string, esp_err_to_name(result));
+      return false;
+    }
+  }
+
+  const esp_err_t commit_result = nvs_commit(global_preferences->nvs_handle);
+  if (commit_result != ESP_OK) {
+    ESP_LOGW(TAG, "Could not commit forgotten Wi-Fi credentials (%s)", esp_err_to_name(commit_result));
+    return false;
+  }
+  return true;
 }
 
 void PersistentWebPortal::handle_time_set_() {
