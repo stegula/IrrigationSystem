@@ -37,3 +37,7 @@ persistent_web_portal:
 Schedules are stored in ESP flash and run locally. When upgrading from `v0.3.0`, the shared schedule is copied into every weekday that was previously selected. The software clock continues without internet while the ESP32 remains powered; a full power loss requires SNTP or manual time setup unless external battery-backed RTC hardware is added.
 
 The repository contains component source code only. Device passwords, API keys, and OTA credentials belong in the ESPHome device's local `secrets.yaml`.
+
+## User manual
+
+- [Korisničko uputstvo - srpski, latinica](docs/Korisnicko_uputstvo_Kontroler_navodnjavanja.docx)
