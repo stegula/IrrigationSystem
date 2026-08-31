@@ -1,8 +1,10 @@
 #pragma once
 
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/time/real_time_clock.h"
 #include "esphome/components/wifi/wifi_component.h"
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 
 #include <DNSServer.h>
 #include <WebServer.h>
@@ -20,6 +22,7 @@ class PersistentWebPortal final : public Component,
                                   public wifi::WiFiConnectStateListener {
  public:
   void set_wifi(wifi::WiFiComponent *wifi) { this->wifi_ = wifi; }
+  void set_time(time::RealTimeClock *time) { this->time_ = time; }
   void add_relay(switch_::Switch *relay);
 
   void setup() override;
@@ -33,7 +36,24 @@ class PersistentWebPortal final : public Component,
   static constexpr uint8_t RELAY_COUNT = 4;
   static constexpr uint32_t AP_CHECK_INTERVAL_MS = 1000;
   static constexpr uint32_t SCAN_RETRY_INTERVAL_MS = 5000;
+  static constexpr uint32_t SCHEDULER_CHECK_INTERVAL_MS = 250;
+  static constexpr uint32_t ZONE_GAP_MS = 10000;
   static constexpr uint32_t DNS_PORT = 53;
+  static constexpr uint16_t MAX_ZONE_MINUTES = 1440;
+  static constexpr uint8_t SETTINGS_VERSION = 1;
+  static constexpr uint8_t NO_ZONE = 0xFF;
+
+  enum class SequencePhase : uint8_t { IDLE, RUNNING_ZONE, WAITING_GAP };
+  enum class TimeSource : uint8_t { NONE, SYSTEM, MANUAL, NETWORK };
+
+  struct __attribute__((packed)) ScheduleSettings {
+    uint8_t version;
+    uint8_t days_mask;
+    uint8_t start_hour;
+    uint8_t start_minute;
+    uint16_t zone_minutes[RELAY_COUNT];
+    uint32_t last_run_date;
+  };
 
   struct ScannedNetwork {
     std::string ssid;
@@ -49,14 +69,32 @@ class PersistentWebPortal final : public Component,
   void handle_relay_();
   void handle_wifi_scan_();
   void handle_wifi_connect_();
+  void handle_time_set_();
+  void handle_schedule_save_();
+  void handle_schedule_stop_();
   void handle_not_found_();
+  void load_settings_();
+  bool save_settings_();
+  void check_schedule_(uint32_t now_ms);
+  void update_sequence_(uint32_t now_ms);
+  void start_sequence_(uint32_t now_ms);
+  void start_next_zone_(uint32_t now_ms);
+  void finish_sequence_();
+  void stop_sequence_(bool turn_off_relays);
+  void turn_all_zones_off_();
+  bool has_pending_zone_() const;
+  bool weekday_enabled_(uint8_t day_of_week) const;
+  static bool deadline_reached_(uint32_t now, uint32_t deadline);
   String build_state_json_() const;
   static void append_json_string_(String &output, const String &value);
   static bool is_valid_station_password_(const String &password);
 
   wifi::WiFiComponent *wifi_{nullptr};
+  time::RealTimeClock *time_{nullptr};
   std::array<switch_::Switch *, RELAY_COUNT> relays_{};
   uint8_t relay_count_{0};
+  ESPPreferenceObject schedule_pref_;
+  ScheduleSettings settings_{};
 
   ::WebServer server_{80};
   DNSServer dns_server_;
@@ -68,8 +106,14 @@ class PersistentWebPortal final : public Component,
   bool scan_in_progress_{false};
   bool scan_results_ready_{false};
   std::vector<ScannedNetwork> scan_results_;
+  SequencePhase sequence_phase_{SequencePhase::IDLE};
+  TimeSource time_source_{TimeSource::NONE};
+  uint8_t active_zone_{NO_ZONE};
+  uint8_t next_zone_index_{0};
+  uint32_t sequence_deadline_{0};
   uint32_t last_ap_check_{0};
   uint32_t last_scan_started_{0};
+  uint32_t last_scheduler_check_{0};
 };
 
 }  // namespace esphome::persistent_web_portal

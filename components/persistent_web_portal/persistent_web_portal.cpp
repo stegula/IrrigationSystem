@@ -3,6 +3,8 @@
 #include "esphome/core/log.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <sys/time.h>
 #include <vector>
 
 namespace esphome::persistent_web_portal {
@@ -29,10 +31,16 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
     button, select, input { box-sizing: border-box; width: 100%; min-height: 44px; border-radius: 9px; border: 1px solid #6b7280; padding: 9px 12px; font: inherit; }
     button { cursor: pointer; color: white; background: #2563eb; border-color: #2563eb; font-weight: 650; }
     button.off { background: #4b5563; border-color: #4b5563; }
+    button.stop { background: #b91c1c; border-color: #b91c1c; }
     button:disabled { opacity: .55; cursor: wait; }
     label { display: block; margin: 12px 0 5px; }
     .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
     .row button { width: auto; }
+    .days { display: grid; grid-template-columns: repeat(auto-fit,minmax(92px,1fr)); gap: 8px; }
+    .days label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px; border: 1px solid #4b5563; border-radius: 9px; }
+    .days input { width: auto; min-height: 0; }
+    .timers { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 0 14px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
     .message { min-height: 1.4em; margin-top: 10px; }
     .ok { color: #6ee7b7; }
     .error { color: #fca5a5; }
@@ -51,6 +59,53 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="relay"><h3>Zone 3</h3><button id="r3" onclick="toggleRelay(3)">Loading...</button></div>
       <div class="relay"><h3>Zone 4</h3><button id="r4" onclick="toggleRelay(4)">Loading...</button></div>
     </div>
+  </section>
+
+  <section>
+    <h2>Date and Time</h2>
+    <div class="status">
+      <div><strong>Current:</strong> <span id="current-time">Not set</span></div>
+      <div><strong>Source:</strong> <span id="time-source">Unavailable</span></div>
+    </div>
+    <p class="muted">Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.</p>
+    <form id="time-form">
+      <label for="manual-datetime">Manual current date and time</label>
+      <div class="row">
+        <input id="manual-datetime" type="datetime-local" step="1" required>
+        <button type="submit" id="set-time">Set Time</button>
+      </div>
+      <div id="time-message" class="message muted"></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Irrigation Schedule</h2>
+    <div><strong>Sequence:</strong> <span id="sequence-status">Idle</span></div>
+    <form id="schedule-form">
+      <label>Days of the week</label>
+      <div class="days">
+        <label><input type="checkbox" data-day-bit="0">Monday</label>
+        <label><input type="checkbox" data-day-bit="1">Tuesday</label>
+        <label><input type="checkbox" data-day-bit="2">Wednesday</label>
+        <label><input type="checkbox" data-day-bit="3">Thursday</label>
+        <label><input type="checkbox" data-day-bit="4">Friday</label>
+        <label><input type="checkbox" data-day-bit="5">Saturday</label>
+        <label><input type="checkbox" data-day-bit="6">Sunday</label>
+      </div>
+      <label for="start-time">Irrigation Start Time</label>
+      <input id="start-time" type="time" required>
+      <div class="timers">
+        <label>Irigation Timer Zone 1 (minutes)<input id="zone-timer-1" type="number" min="0" max="1440" step="1" value="0" required></label>
+        <label>Irigation Timer Zone 2 (minutes)<input id="zone-timer-2" type="number" min="0" max="1440" step="1" value="0" required></label>
+        <label>Irigation Timer Zone 3 (minutes)<input id="zone-timer-3" type="number" min="0" max="1440" step="1" value="0" required></label>
+        <label>Irigation Timer Zone 4 (minutes)<input id="zone-timer-4" type="number" min="0" max="1440" step="1" value="0" required></label>
+      </div>
+      <div class="actions">
+        <button type="submit" id="save-schedule">Save Schedule</button>
+        <button type="button" class="stop" id="stop-sequence" onclick="stopSequence()">Stop Irrigation</button>
+      </div>
+      <div id="schedule-message" class="message muted"></div>
+    </form>
   </section>
 
   <section>
@@ -75,6 +130,8 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 </main>
 <script>
 let relayStates = [false, false, false, false];
+let scheduleLoaded = false;
+let timeInputInitialized = false;
 
 async function request(url, options) {
   const response = await fetch(url, options);
@@ -95,7 +152,41 @@ async function refreshState() {
     document.getElementById('wifi-status').textContent = state.wifi.connected ? `Connected to ${state.wifi.ssid}` : 'Not connected';
     document.getElementById('sta-ip').textContent = state.wifi.sta_ip || '—';
     document.getElementById('ap-ip').textContent = state.wifi.ap_ip || '192.168.4.1';
+
+    document.getElementById('current-time').textContent = state.time.valid ? state.time.datetime.replace('T', ' ') : 'Not set';
+    document.getElementById('time-source').textContent = {
+      network: 'Internet (SNTP)', manual: 'Manual', system: 'System clock', unavailable: 'Unavailable'
+    }[state.time.source] || state.time.source;
+    if (!timeInputInitialized) {
+      document.getElementById('manual-datetime').value = state.time.valid ? state.time.datetime : browserDateTime();
+      timeInputInitialized = true;
+    }
+
+    if (!scheduleLoaded) {
+      document.querySelectorAll('[data-day-bit]').forEach(input => {
+        input.checked = (state.schedule.days_mask & (1 << Number(input.dataset.dayBit))) !== 0;
+      });
+      document.getElementById('start-time').value = state.schedule.start_time;
+      state.schedule.timers.forEach((minutes, index) => {
+        document.getElementById(`zone-timer-${index + 1}`).value = minutes;
+      });
+      scheduleLoaded = true;
+    }
+
+    let sequenceText = 'Idle';
+    if (state.schedule.phase === 'watering')
+      sequenceText = `Zone ${state.schedule.active_zone} running — ${state.schedule.remaining_seconds}s remaining`;
+    else if (state.schedule.phase === 'delay')
+      sequenceText = `10-second delay — ${state.schedule.remaining_seconds}s remaining`;
+    document.getElementById('sequence-status').textContent = sequenceText;
+    document.getElementById('stop-sequence').disabled = state.schedule.phase === 'idle';
   } catch (_) {}
+}
+
+function browserDateTime() {
+  const date = new Date();
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 async function toggleRelay(channel) {
@@ -153,6 +244,79 @@ async function scanWifi() {
   }
 }
 
+document.getElementById('time-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('set-time');
+  const message = document.getElementById('time-message');
+  button.disabled = true;
+  try {
+    await request('/api/time', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({datetime: document.getElementById('manual-datetime').value})
+    });
+    message.textContent = 'Device date and time updated.';
+    message.className = 'message ok';
+    await refreshState();
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = 'message error';
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.getElementById('schedule-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('save-schedule');
+  const message = document.getElementById('schedule-message');
+  let daysMask = 0;
+  document.querySelectorAll('[data-day-bit]').forEach(input => {
+    if (input.checked) daysMask |= 1 << Number(input.dataset.dayBit);
+  });
+  button.disabled = true;
+  try {
+    await request('/api/schedule', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({
+        days_mask: daysMask,
+        start_time: document.getElementById('start-time').value,
+        zone_1: document.getElementById('zone-timer-1').value,
+        zone_2: document.getElementById('zone-timer-2').value,
+        zone_3: document.getElementById('zone-timer-3').value,
+        zone_4: document.getElementById('zone-timer-4').value
+      })
+    });
+    message.textContent = daysMask ? 'Schedule saved.' : 'Schedule saved with no active weekdays.';
+    message.className = 'message ok';
+    scheduleLoaded = false;
+    await refreshState();
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = 'message error';
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function stopSequence() {
+  const button = document.getElementById('stop-sequence');
+  const message = document.getElementById('schedule-message');
+  button.disabled = true;
+  try {
+    await request('/api/schedule/stop', {method: 'POST'});
+    message.textContent = 'Irrigation stopped.';
+    message.className = 'message ok';
+    await refreshState();
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = 'message error';
+  } finally {
+    button.disabled = false;
+  }
+}
+
 document.getElementById('wifi-form').addEventListener('submit', async event => {
   event.preventDefault();
   const button = document.getElementById('connect');
@@ -191,11 +355,20 @@ void PersistentWebPortal::add_relay(switch_::Switch *relay) {
 }
 
 void PersistentWebPortal::setup() {
-  if (this->wifi_ == nullptr || this->relay_count_ != RELAY_COUNT) {
+  if (this->wifi_ == nullptr || this->time_ == nullptr || this->relay_count_ != RELAY_COUNT) {
     ESP_LOGE(TAG, "Invalid configuration");
     this->mark_failed();
     return;
   }
+
+  this->schedule_pref_ = global_preferences->make_preference<ScheduleSettings>(0x49525247UL, true);
+  this->load_settings_();
+  if (this->time_->now().is_valid())
+    this->time_source_ = TimeSource::SYSTEM;
+  this->time_->add_on_time_sync_callback([this]() {
+    this->time_source_ = TimeSource::NETWORK;
+    ESP_LOGI(TAG, "Clock synchronized from the network");
+  });
 
   this->wifi_->add_scan_results_listener(this);
   this->wifi_->add_connect_state_listener(this);
@@ -207,6 +380,9 @@ void PersistentWebPortal::setup() {
   this->server_.on("/api/relay", HTTP_POST, [this]() { this->handle_relay_(); });
   this->server_.on("/api/wifi/scan", HTTP_GET, [this]() { this->handle_wifi_scan_(); });
   this->server_.on("/api/wifi/connect", HTTP_POST, [this]() { this->handle_wifi_connect_(); });
+  this->server_.on("/api/time", HTTP_POST, [this]() { this->handle_time_set_(); });
+  this->server_.on("/api/schedule", HTTP_POST, [this]() { this->handle_schedule_save_(); });
+  this->server_.on("/api/schedule/stop", HTTP_POST, [this]() { this->handle_schedule_stop_(); });
   this->server_.onNotFound([this]() { this->handle_not_found_(); });
   this->server_.begin();
 
@@ -242,6 +418,12 @@ void PersistentWebPortal::loop() {
       this->pending_credentials_ = false;
       ESP_LOGI(TAG, "New Wi-Fi credentials connected and saved");
     }
+  }
+
+  this->update_sequence_(now);
+  if (now - this->last_scheduler_check_ >= SCHEDULER_CHECK_INTERVAL_MS) {
+    this->last_scheduler_check_ = now;
+    this->check_schedule_(now);
   }
 }
 
@@ -354,6 +536,10 @@ void PersistentWebPortal::handle_relay_() {
   }
 
   const String requested_state = this->server_.arg("state");
+  if (this->sequence_phase_ != SequencePhase::IDLE) {
+    ESP_LOGI(TAG, "Manual zone control stopped the irrigation sequence");
+    this->stop_sequence_(true);
+  }
   auto *relay = this->relays_[channel - 1];
   if (requested_state == "on") {
     relay->turn_on();
@@ -443,6 +629,262 @@ void PersistentWebPortal::handle_wifi_connect_() {
   this->server_.send(202, "application/json", F("{\"ok\":true,\"status\":\"connecting\"}"));
 }
 
+void PersistentWebPortal::handle_time_set_() {
+  if (!this->server_.hasArg("datetime")) {
+    this->send_json_error_(400, "datetime is required");
+    return;
+  }
+
+  const String value = this->server_.arg("datetime");
+  int year = 0;
+  int month = 0;
+  int day = 0;
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+  const int parsed = sscanf(value.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second);
+  if (parsed < 5) {
+    this->send_json_error_(400, "Use a valid date and time");
+    return;
+  }
+
+  ESPTime manual_time{};
+  manual_time.year = year;
+  manual_time.month = month;
+  manual_time.day_of_month = day;
+  manual_time.hour = hour;
+  manual_time.minute = minute;
+  manual_time.second = parsed >= 6 ? second : 0;
+  if (!manual_time.fields_in_range(false, false) || year < 2019 || year > 2099) {
+    this->send_json_error_(400, "Date or time is outside the supported range");
+    return;
+  }
+
+  manual_time.recalc_timestamp_local();
+  if (manual_time.timestamp < 1546300800) {
+    this->send_json_error_(400, "Date or time is invalid");
+    return;
+  }
+
+  struct timeval time_value {
+    .tv_sec = manual_time.timestamp, .tv_usec = 0
+  };
+  if (settimeofday(&time_value, nullptr) != 0) {
+    ESP_LOGW(TAG, "Could not set the manual clock");
+    this->send_json_error_(500, "Could not set the device clock");
+    return;
+  }
+
+  this->time_source_ = TimeSource::MANUAL;
+  ESP_LOGI(TAG, "Clock set manually");
+  this->server_.send(200, "application/json", F("{\"ok\":true}"));
+}
+
+void PersistentWebPortal::handle_schedule_save_() {
+  static const char *const REQUIRED_ARGS[] = {"days_mask", "start_time", "zone_1", "zone_2", "zone_3", "zone_4"};
+  for (const char *argument : REQUIRED_ARGS) {
+    if (!this->server_.hasArg(argument)) {
+      this->send_json_error_(400, "Complete schedule data is required");
+      return;
+    }
+  }
+
+  const long days_mask = this->server_.arg("days_mask").toInt();
+  if (days_mask < 0 || days_mask > 0x7F) {
+    this->send_json_error_(400, "Invalid weekday selection");
+    return;
+  }
+
+  int start_hour = -1;
+  int start_minute = -1;
+  const String start_time = this->server_.arg("start_time");
+  if (sscanf(start_time.c_str(), "%d:%d", &start_hour, &start_minute) != 2 || start_hour < 0 || start_hour > 23 ||
+      start_minute < 0 || start_minute > 59) {
+    this->send_json_error_(400, "Invalid irrigation start time");
+    return;
+  }
+
+  uint16_t zone_minutes[RELAY_COUNT];
+  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
+    String argument = F("zone_");
+    argument += static_cast<unsigned int>(i + 1);
+    const long minutes = this->server_.arg(argument).toInt();
+    if (minutes < 0 || minutes > MAX_ZONE_MINUTES) {
+      this->send_json_error_(400, "Zone timers must be between 0 and 1440 minutes");
+      return;
+    }
+    zone_minutes[i] = minutes;
+  }
+
+  this->stop_sequence_(true);
+  this->settings_.version = SETTINGS_VERSION;
+  this->settings_.days_mask = days_mask;
+  this->settings_.start_hour = start_hour;
+  this->settings_.start_minute = start_minute;
+  for (uint8_t i = 0; i < RELAY_COUNT; i++)
+    this->settings_.zone_minutes[i] = zone_minutes[i];
+  this->settings_.last_run_date = 0;
+
+  if (!this->save_settings_()) {
+    this->send_json_error_(500, "Could not save the schedule");
+    return;
+  }
+
+  ESP_LOGI(TAG, "Irrigation schedule saved");
+  this->server_.send(200, "application/json", F("{\"ok\":true}"));
+}
+
+void PersistentWebPortal::handle_schedule_stop_() {
+  this->stop_sequence_(true);
+  this->server_.send(200, "application/json", F("{\"ok\":true}"));
+}
+
+void PersistentWebPortal::load_settings_() {
+  ScheduleSettings saved{};
+  bool valid = this->schedule_pref_.load(&saved) && saved.version == SETTINGS_VERSION && saved.days_mask <= 0x7F &&
+               saved.start_hour < 24 && saved.start_minute < 60;
+  if (valid) {
+    for (uint8_t i = 0; i < RELAY_COUNT; i++) {
+      if (saved.zone_minutes[i] > MAX_ZONE_MINUTES) {
+        valid = false;
+        break;
+      }
+    }
+  }
+
+  if (valid) {
+    this->settings_ = saved;
+    return;
+  }
+
+  this->settings_ = {};
+  this->settings_.version = SETTINGS_VERSION;
+  this->settings_.start_hour = 6;
+  this->settings_.start_minute = 0;
+}
+
+bool PersistentWebPortal::save_settings_() { return this->schedule_pref_.save(&this->settings_); }
+
+void PersistentWebPortal::check_schedule_(uint32_t now_ms) {
+  if (this->sequence_phase_ != SequencePhase::IDLE)
+    return;
+
+  const ESPTime current = this->time_->now();
+  if (!current.is_valid() || !this->weekday_enabled_(current.day_of_week) || current.hour != this->settings_.start_hour ||
+      current.minute != this->settings_.start_minute)
+    return;
+
+  bool has_runtime = false;
+  for (uint8_t i = 0; i < RELAY_COUNT; i++)
+    has_runtime |= this->settings_.zone_minutes[i] != 0;
+  if (!has_runtime)
+    return;
+
+  const uint32_t date_key = static_cast<uint32_t>(current.year) * 10000UL + current.month * 100UL + current.day_of_month;
+  if (this->settings_.last_run_date == date_key)
+    return;
+
+  this->settings_.last_run_date = date_key;
+  if (!this->save_settings_())
+    ESP_LOGW(TAG, "Could not persist the last irrigation run date");
+  this->start_sequence_(now_ms);
+}
+
+void PersistentWebPortal::update_sequence_(uint32_t now_ms) {
+  if (this->sequence_phase_ == SequencePhase::IDLE || !deadline_reached_(now_ms, this->sequence_deadline_))
+    return;
+
+  if (this->sequence_phase_ == SequencePhase::RUNNING_ZONE) {
+    if (this->active_zone_ < RELAY_COUNT)
+      this->relays_[this->active_zone_]->turn_off();
+    this->active_zone_ = NO_ZONE;
+
+    if (this->has_pending_zone_()) {
+      this->sequence_phase_ = SequencePhase::WAITING_GAP;
+      this->sequence_deadline_ = now_ms + ZONE_GAP_MS;
+      ESP_LOGI(TAG, "Waiting 10 seconds before the next zone");
+    } else {
+      this->finish_sequence_();
+    }
+    return;
+  }
+
+  if (this->sequence_phase_ == SequencePhase::WAITING_GAP)
+    this->start_next_zone_(now_ms);
+}
+
+void PersistentWebPortal::start_sequence_(uint32_t now_ms) {
+  this->turn_all_zones_off_();
+  this->sequence_phase_ = SequencePhase::WAITING_GAP;
+  this->active_zone_ = NO_ZONE;
+  this->next_zone_index_ = 0;
+  ESP_LOGI(TAG, "Starting scheduled irrigation sequence");
+  this->start_next_zone_(now_ms);
+}
+
+void PersistentWebPortal::start_next_zone_(uint32_t now_ms) {
+  while (this->next_zone_index_ < RELAY_COUNT && this->settings_.zone_minutes[this->next_zone_index_] == 0)
+    this->next_zone_index_++;
+
+  if (this->next_zone_index_ >= RELAY_COUNT) {
+    this->finish_sequence_();
+    return;
+  }
+
+  const uint8_t zone = this->next_zone_index_++;
+  const uint16_t minutes = this->settings_.zone_minutes[zone];
+  this->relays_[zone]->turn_on();
+  this->active_zone_ = zone;
+  this->sequence_phase_ = SequencePhase::RUNNING_ZONE;
+  this->sequence_deadline_ = now_ms + static_cast<uint32_t>(minutes) * 60000UL;
+  ESP_LOGI(TAG, "Zone %u started for %u minute(s)", zone + 1, minutes);
+}
+
+void PersistentWebPortal::finish_sequence_() {
+  this->turn_all_zones_off_();
+  this->sequence_phase_ = SequencePhase::IDLE;
+  this->active_zone_ = NO_ZONE;
+  this->next_zone_index_ = 0;
+  this->sequence_deadline_ = 0;
+  ESP_LOGI(TAG, "Irrigation sequence finished");
+}
+
+void PersistentWebPortal::stop_sequence_(bool turn_off_relays) {
+  const bool was_active = this->sequence_phase_ != SequencePhase::IDLE;
+  if (turn_off_relays)
+    this->turn_all_zones_off_();
+  this->sequence_phase_ = SequencePhase::IDLE;
+  this->active_zone_ = NO_ZONE;
+  this->next_zone_index_ = 0;
+  this->sequence_deadline_ = 0;
+  if (was_active)
+    ESP_LOGI(TAG, "Irrigation sequence stopped");
+}
+
+void PersistentWebPortal::turn_all_zones_off_() {
+  for (auto *relay : this->relays_)
+    relay->turn_off();
+}
+
+bool PersistentWebPortal::has_pending_zone_() const {
+  for (uint8_t i = this->next_zone_index_; i < RELAY_COUNT; i++) {
+    if (this->settings_.zone_minutes[i] != 0)
+      return true;
+  }
+  return false;
+}
+
+bool PersistentWebPortal::weekday_enabled_(uint8_t day_of_week) const {
+  if (day_of_week < 1 || day_of_week > 7)
+    return false;
+  const uint8_t bit = day_of_week == 1 ? 6 : day_of_week - 2;
+  return (this->settings_.days_mask & (1U << bit)) != 0;
+}
+
+bool PersistentWebPortal::deadline_reached_(uint32_t now, uint32_t deadline) {
+  return static_cast<int32_t>(now - deadline) >= 0;
+}
+
 void PersistentWebPortal::handle_not_found_() {
   if (this->server_.method() == HTTP_GET) {
     this->server_.sendHeader("Location", "http://192.168.4.1/", true);
@@ -454,7 +896,7 @@ void PersistentWebPortal::handle_not_found_() {
 
 String PersistentWebPortal::build_state_json_() const {
   String response;
-  response.reserve(220);
+  response.reserve(640);
   response += F("{\"relays\":[");
   for (uint8_t i = 0; i < RELAY_COUNT; i++) {
     if (i != 0)
@@ -482,6 +924,61 @@ String PersistentWebPortal::build_state_json_() const {
   append_json_string_(response, station_ip);
   response += F(",\"ap_ip\":");
   append_json_string_(response, String(F("192.168.4.1")));
+  response += F("},\"time\":{");
+  ESPTime current = this->time_->now();
+  response += F("\"valid\":");
+  response += current.is_valid() ? F("true") : F("false");
+  response += F(",\"datetime\":");
+  char datetime_buffer[ESPTime::STRFTIME_BUFFER_SIZE]{};
+  if (current.is_valid())
+    current.strftime(datetime_buffer, sizeof(datetime_buffer), "%Y-%m-%dT%H:%M:%S");
+  append_json_string_(response, String(datetime_buffer));
+  response += F(",\"source\":");
+  const char *source = "unavailable";
+  switch (this->time_source_) {
+    case TimeSource::NETWORK:
+      source = "network";
+      break;
+    case TimeSource::MANUAL:
+      source = "manual";
+      break;
+    case TimeSource::SYSTEM:
+      source = "system";
+      break;
+    case TimeSource::NONE:
+      break;
+  }
+  append_json_string_(response, String(source));
+  response += F("},\"schedule\":{\"days_mask\":");
+  response += static_cast<unsigned int>(this->settings_.days_mask);
+  response += F(",\"start_time\":");
+  char start_time_buffer[8];
+  snprintf(start_time_buffer, sizeof(start_time_buffer), "%02u:%02u", this->settings_.start_hour,
+           this->settings_.start_minute);
+  append_json_string_(response, String(start_time_buffer));
+  response += F(",\"timers\":[");
+  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
+    if (i != 0)
+      response += ',';
+    response += this->settings_.zone_minutes[i];
+  }
+  response += F("],\"phase\":");
+  const char *phase = "idle";
+  if (this->sequence_phase_ == SequencePhase::RUNNING_ZONE)
+    phase = "watering";
+  else if (this->sequence_phase_ == SequencePhase::WAITING_GAP)
+    phase = "delay";
+  append_json_string_(response, String(phase));
+  response += F(",\"active_zone\":");
+  response += this->active_zone_ < RELAY_COUNT ? this->active_zone_ + 1 : 0;
+  response += F(",\"remaining_seconds\":");
+  uint32_t remaining_seconds = 0;
+  if (this->sequence_phase_ != SequencePhase::IDLE) {
+    const int32_t remaining_ms = static_cast<int32_t>(this->sequence_deadline_ - millis());
+    if (remaining_ms > 0)
+      remaining_seconds = (static_cast<uint32_t>(remaining_ms) + 999) / 1000;
+  }
+  response += remaining_seconds;
   response += F("}}");
   return response;
 }
