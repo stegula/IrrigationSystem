@@ -83,6 +83,8 @@ class PersistentWebPortal final : public Component,
   void send_index_();
   void send_json_error_(int status, const char *message);
   void handle_state_();
+  void handle_status_();
+  void handle_schedule_state_();
   void handle_relays_();
   void handle_relay_();
   void handle_wifi_scan_();
@@ -113,6 +115,7 @@ class PersistentWebPortal final : public Component,
   uint8_t relay_count_{0};
   ESPPreferenceObject schedule_pref_;
   ScheduleSettings settings_{};
+  uint32_t schedule_revision_{1};
 
   ::WebServer server_{80};
   DNSServer dns_server_;

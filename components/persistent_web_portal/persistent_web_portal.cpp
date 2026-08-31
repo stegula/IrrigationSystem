@@ -117,7 +117,8 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 </main>
 <script>
 let relayStates = [false, false, false, false];
-let scheduleLoaded = false;
+let scheduleRevision = null;
+let scheduleDirty = false;
 let timeInputInitialized = false;
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -155,10 +156,9 @@ async function request(url, options) {
   return data;
 }
 
-async function refreshState() {
+async function refreshStatus() {
   try {
-    const state = await request('/api/state');
-    applyRelayStates(state.relays);
+    const state = await request('/api/status');
     document.getElementById('wifi-status').textContent = state.wifi.connected ? `Connected to ${state.wifi.ssid}` : 'Not connected';
     document.getElementById('sta-ip').textContent = state.wifi.sta_ip || '—';
     document.getElementById('ap-ip').textContent = state.wifi.ap_ip || '192.168.4.1';
@@ -172,24 +172,30 @@ async function refreshState() {
       timeInputInitialized = true;
     }
 
-    if (!scheduleLoaded) {
-      state.schedule.days.forEach((profile, day) => {
+  } catch (_) {}
+}
+
+async function refreshSchedule() {
+  try {
+    const state = await request('/api/schedule');
+    if (!scheduleDirty && scheduleRevision !== state.revision) {
+      state.days.forEach((profile, day) => {
         document.getElementById(`day-${day}-enabled`).checked = profile.enabled;
         document.getElementById(`day-${day}-start`).value = profile.start_time;
         profile.timers.forEach((minutes, zone) => {
           document.getElementById(`day-${day}-zone-${zone + 1}`).value = minutes;
         });
       });
-      scheduleLoaded = true;
+      scheduleRevision = state.revision;
     }
 
     let sequenceText = 'Idle';
-    if (state.schedule.phase === 'watering')
-      sequenceText = `Zone ${state.schedule.active_zone} running — ${state.schedule.remaining_seconds}s remaining`;
-    else if (state.schedule.phase === 'delay')
-      sequenceText = `10-second delay — ${state.schedule.remaining_seconds}s remaining`;
+    if (state.phase === 'watering')
+      sequenceText = `Zone ${state.active_zone} running — ${state.remaining_seconds}s remaining`;
+    else if (state.phase === 'delay')
+      sequenceText = `10-second delay — ${state.remaining_seconds}s remaining`;
     document.getElementById('sequence-status').textContent = sequenceText;
-    document.getElementById('stop-sequence').disabled = state.schedule.phase === 'idle';
+    document.getElementById('stop-sequence').disabled = state.phase === 'idle';
   } catch (_) {}
 }
 
@@ -277,7 +283,7 @@ document.getElementById('time-form').addEventListener('submit', async event => {
     });
     message.textContent = 'Device date and time updated.';
     message.className = 'message ok';
-    await refreshState();
+    await refreshStatus();
   } catch (error) {
     message.textContent = error.message;
     message.className = 'message error';
@@ -302,15 +308,16 @@ document.getElementById('schedule-form').addEventListener('submit', async event 
   });
   button.disabled = true;
   try {
-    await request('/api/schedule', {
+    const result = await request('/api/schedule', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: new URLSearchParams(scheduleData)
     });
     message.textContent = enabledDays ? 'Daily schedules saved.' : 'Schedules saved with no enabled days.';
     message.className = 'message ok';
-    scheduleLoaded = false;
-    await refreshState();
+    scheduleDirty = false;
+    scheduleRevision = result.revision;
+    await refreshSchedule();
   } catch (error) {
     message.textContent = error.message;
     message.className = 'message error';
@@ -327,7 +334,7 @@ async function stopSequence() {
     await request('/api/schedule/stop', {method: 'POST'});
     message.textContent = 'Irrigation stopped.';
     message.className = 'message ok';
-    await refreshState();
+    await refreshSchedule();
   } catch (error) {
     message.textContent = error.message;
     message.className = 'message error';
@@ -361,10 +368,16 @@ document.getElementById('wifi-form').addEventListener('submit', async event => {
 });
 
 buildDaySchedules();
-refreshRelays();
-refreshState();
-setInterval(refreshRelays, 1000);
-setInterval(refreshState, 1500);
+document.getElementById('schedule-form').addEventListener('input', () => { scheduleDirty = true; });
+
+async function pollPortal() {
+  await refreshRelays();
+  await refreshStatus();
+  await refreshSchedule();
+  setTimeout(pollPortal, 1000);
+}
+
+pollPortal();
 </script>
 </body>
 </html>
@@ -399,6 +412,8 @@ void PersistentWebPortal::setup() {
 
   this->server_.on("/", HTTP_GET, [this]() { this->send_index_(); });
   this->server_.on("/api/state", HTTP_GET, [this]() { this->handle_state_(); });
+  this->server_.on("/api/status", HTTP_GET, [this]() { this->handle_status_(); });
+  this->server_.on("/api/schedule", HTTP_GET, [this]() { this->handle_schedule_state_(); });
   this->server_.on("/api/relays", HTTP_GET, [this]() { this->handle_relays_(); });
   this->server_.on("/api/relay", HTTP_POST, [this]() { this->handle_relay_(); });
   this->server_.on("/api/wifi/scan", HTTP_GET, [this]() { this->handle_wifi_scan_(); });
@@ -588,6 +603,103 @@ void PersistentWebPortal::send_json_error_(int status, const char *message) {
 void PersistentWebPortal::handle_state_() {
   this->server_.sendHeader("Cache-Control", "no-store");
   this->server_.send(200, "application/json", this->build_state_json_());
+}
+
+void PersistentWebPortal::handle_status_() {
+  String response;
+  response.reserve(320);
+  response += F("{\"wifi\":{\"connected\":");
+  const bool connected = this->wifi_->is_connected();
+  response += connected ? F("true") : F("false");
+  response += F(",\"ssid\":");
+  char ssid_buffer[wifi::SSID_BUFFER_SIZE];
+  append_json_string_(response, connected ? String(this->wifi_->wifi_ssid_to(ssid_buffer)) : String());
+  response += F(",\"sta_ip\":");
+  String station_ip;
+  if (connected) {
+    const auto addresses = this->wifi_->wifi_sta_ip_addresses();
+    for (const auto &address : addresses) {
+      if (address.is_set() && address.is_ip4()) {
+        char address_buffer[network::IP_ADDRESS_BUFFER_SIZE];
+        station_ip = address.str_to(address_buffer);
+        break;
+      }
+    }
+  }
+  append_json_string_(response, station_ip);
+  response += F(",\"ap_ip\":\"192.168.4.1\"},\"time\":{\"valid\":");
+  ESPTime current = this->time_->now();
+  response += current.is_valid() ? F("true") : F("false");
+  response += F(",\"datetime\":");
+  char datetime_buffer[ESPTime::STRFTIME_BUFFER_SIZE]{};
+  if (current.is_valid())
+    current.strftime(datetime_buffer, sizeof(datetime_buffer), "%Y-%m-%dT%H:%M:%S");
+  append_json_string_(response, String(datetime_buffer));
+  response += F(",\"source\":");
+  const char *source = "unavailable";
+  switch (this->time_source_) {
+    case TimeSource::NETWORK:
+      source = "network";
+      break;
+    case TimeSource::MANUAL:
+      source = "manual";
+      break;
+    case TimeSource::SYSTEM:
+      source = "system";
+      break;
+    case TimeSource::NONE:
+      break;
+  }
+  append_json_string_(response, String(source));
+  response += F("}}");
+  this->server_.sendHeader("Cache-Control", "no-store");
+  this->server_.send(200, "application/json", response);
+}
+
+void PersistentWebPortal::handle_schedule_state_() {
+  String response;
+  response.reserve(900);
+  response += F("{\"revision\":");
+  response += this->schedule_revision_;
+  response += F(",\"days\":[");
+  for (uint8_t day = 0; day < DAYS_COUNT; day++) {
+    if (day != 0)
+      response += ',';
+    response += F("{\"enabled\":");
+    response += this->settings_.days[day].enabled ? F("true") : F("false");
+    response += F(",\"start_time\":");
+    char start_time_buffer[8];
+    snprintf(start_time_buffer, sizeof(start_time_buffer), "%02u:%02u", this->settings_.days[day].start_hour,
+             this->settings_.days[day].start_minute);
+    append_json_string_(response, String(start_time_buffer));
+    response += F(",\"timers\":[");
+    for (uint8_t zone = 0; zone < RELAY_COUNT; zone++) {
+      if (zone != 0)
+        response += ',';
+      response += this->settings_.days[day].zone_minutes[zone];
+    }
+    response += F("]}");
+  }
+  response += F("],\"phase\":");
+  const char *phase = "idle";
+  if (this->sequence_phase_ == SequencePhase::RUNNING_ZONE)
+    phase = "watering";
+  else if (this->sequence_phase_ == SequencePhase::WAITING_GAP)
+    phase = "delay";
+  append_json_string_(response, String(phase));
+  response += F(",\"active_zone\":");
+  response += this->active_zone_ < RELAY_COUNT ? this->active_zone_ + 1 : 0;
+  response += F(",\"remaining_seconds\":");
+  uint32_t remaining_seconds = 0;
+  if (this->sequence_phase_ != SequencePhase::IDLE) {
+    const int32_t remaining_ms = static_cast<int32_t>(this->sequence_deadline_ - millis());
+    if (remaining_ms > 0)
+      remaining_seconds = (static_cast<uint32_t>(remaining_ms) + 999) / 1000;
+  }
+  response += remaining_seconds;
+  response += '}';
+  this->server_.sendHeader("Cache-Control", "no-store");
+  this->server_.send(200, "application/json", response);
 }
 
 void PersistentWebPortal::handle_relays_() {
@@ -819,8 +931,12 @@ void PersistentWebPortal::handle_schedule_save_() {
     return;
   }
 
+  this->schedule_revision_++;
   ESP_LOGI(TAG, "Irrigation schedule saved");
-  this->server_.send(200, "application/json", F("{\"ok\":true}"));
+  String response = F("{\"ok\":true,\"revision\":");
+  response += this->schedule_revision_;
+  response += '}';
+  this->server_.send(200, "application/json", response);
 }
 
 void PersistentWebPortal::handle_schedule_stop_() {
@@ -1074,7 +1190,9 @@ String PersistentWebPortal::build_state_json_() const {
       break;
   }
   append_json_string_(response, String(source));
-  response += F("},\"schedule\":{\"days\":[");
+  response += F("},\"schedule\":{\"revision\":");
+  response += this->schedule_revision_;
+  response += F(",\"days\":[");
   for (uint8_t day = 0; day < DAYS_COUNT; day++) {
     if (day != 0)
       response += ',';
