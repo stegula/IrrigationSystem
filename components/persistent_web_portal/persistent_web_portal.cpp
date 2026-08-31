@@ -503,6 +503,15 @@ void PersistentWebPortal::ensure_ap_() {
   }
 
   this->start_dns_();
+  // ESPHome disables the fallback AP after STA connects. Although changing the
+  // radio back to AP+STA brings back its SSID and DHCP interface, an HTTP socket
+  // created before that interface cycle can remain unreachable from AP clients.
+  // Reopen the wildcard listener after the AP_START event has propagated.
+  this->set_timeout("restart_web_services", 500, [this]() {
+    this->server_.begin();
+    this->start_dns_();
+    ESP_LOGI(TAG, "Portal listeners restarted for the persistent access point");
+  });
   ESP_LOGI(TAG, "Persistent access point restored");
 }
 
