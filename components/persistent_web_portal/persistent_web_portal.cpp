@@ -36,9 +36,11 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
     label { display: block; margin: 12px 0 5px; }
     .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
     .row button { width: auto; }
-    .days { display: grid; grid-template-columns: repeat(auto-fit,minmax(92px,1fr)); gap: 8px; }
-    .days label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px; border: 1px solid #4b5563; border-radius: 9px; }
-    .days input { width: auto; min-height: 0; }
+    .day-card { border: 1px solid #4b5563; border-radius: 10px; margin-top: 10px; }
+    .day-card summary { cursor: pointer; padding: 12px; font-weight: 700; }
+    .day-content { padding: 0 12px 12px; }
+    .enable-row { display: flex; align-items: center; gap: 9px; }
+    .enable-row input { width: auto; min-height: 0; }
     .timers { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 0 14px; }
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
     .message { min-height: 1.4em; margin-top: 10px; }
@@ -82,24 +84,8 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
     <h2>Irrigation Schedule</h2>
     <div><strong>Sequence:</strong> <span id="sequence-status">Idle</span></div>
     <form id="schedule-form">
-      <label>Days of the week</label>
-      <div class="days">
-        <label><input type="checkbox" data-day-bit="0">Monday</label>
-        <label><input type="checkbox" data-day-bit="1">Tuesday</label>
-        <label><input type="checkbox" data-day-bit="2">Wednesday</label>
-        <label><input type="checkbox" data-day-bit="3">Thursday</label>
-        <label><input type="checkbox" data-day-bit="4">Friday</label>
-        <label><input type="checkbox" data-day-bit="5">Saturday</label>
-        <label><input type="checkbox" data-day-bit="6">Sunday</label>
-      </div>
-      <label for="start-time">Irrigation Start Time</label>
-      <input id="start-time" type="time" required>
-      <div class="timers">
-        <label>Irigation Timer Zone 1 (minutes)<input id="zone-timer-1" type="number" min="0" max="1440" step="1" value="0" required></label>
-        <label>Irigation Timer Zone 2 (minutes)<input id="zone-timer-2" type="number" min="0" max="1440" step="1" value="0" required></label>
-        <label>Irigation Timer Zone 3 (minutes)<input id="zone-timer-3" type="number" min="0" max="1440" step="1" value="0" required></label>
-        <label>Irigation Timer Zone 4 (minutes)<input id="zone-timer-4" type="number" min="0" max="1440" step="1" value="0" required></label>
-      </div>
+      <p class="muted">Each day has its own start time and zone timers. Disable a day to prevent its schedule from running.</p>
+      <div id="day-schedules"></div>
       <div class="actions">
         <button type="submit" id="save-schedule">Save Schedule</button>
         <button type="button" class="stop" id="stop-sequence" onclick="stopSequence()">Stop Irrigation</button>
@@ -132,6 +118,25 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 let relayStates = [false, false, false, false];
 let scheduleLoaded = false;
 let timeInputInitialized = false;
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function buildDaySchedules() {
+  const container = document.getElementById('day-schedules');
+  DAY_NAMES.forEach((name, day) => {
+    const details = document.createElement('details');
+    details.className = 'day-card';
+    details.open = day === 0;
+    details.innerHTML = `<summary>${name}</summary>
+      <div class="day-content">
+        <label class="enable-row"><input id="day-${day}-enabled" type="checkbox">Enable ${name}</label>
+        <label>Irrigation Start Time<input id="day-${day}-start" type="time" required></label>
+        <div class="timers">
+          ${[1, 2, 3, 4].map(zone => `<label>Irigation Timer Zone ${zone} (minutes)<input id="day-${day}-zone-${zone}" type="number" min="0" max="1440" step="1" value="0" required></label>`).join('')}
+        </div>
+      </div>`;
+    container.appendChild(details);
+  });
+}
 
 async function request(url, options) {
   const response = await fetch(url, options);
@@ -163,12 +168,12 @@ async function refreshState() {
     }
 
     if (!scheduleLoaded) {
-      document.querySelectorAll('[data-day-bit]').forEach(input => {
-        input.checked = (state.schedule.days_mask & (1 << Number(input.dataset.dayBit))) !== 0;
-      });
-      document.getElementById('start-time').value = state.schedule.start_time;
-      state.schedule.timers.forEach((minutes, index) => {
-        document.getElementById(`zone-timer-${index + 1}`).value = minutes;
+      state.schedule.days.forEach((profile, day) => {
+        document.getElementById(`day-${day}-enabled`).checked = profile.enabled;
+        document.getElementById(`day-${day}-start`).value = profile.start_time;
+        profile.timers.forEach((minutes, zone) => {
+          document.getElementById(`day-${day}-zone-${zone + 1}`).value = minutes;
+        });
       });
       scheduleLoaded = true;
     }
@@ -270,25 +275,24 @@ document.getElementById('schedule-form').addEventListener('submit', async event 
   event.preventDefault();
   const button = document.getElementById('save-schedule');
   const message = document.getElementById('schedule-message');
-  let daysMask = 0;
-  document.querySelectorAll('[data-day-bit]').forEach(input => {
-    if (input.checked) daysMask |= 1 << Number(input.dataset.dayBit);
+  const scheduleData = {};
+  let enabledDays = 0;
+  DAY_NAMES.forEach((_, day) => {
+    const enabled = document.getElementById(`day-${day}-enabled`).checked;
+    if (enabled) enabledDays++;
+    scheduleData[`day_${day}_enabled`] = enabled ? '1' : '0';
+    scheduleData[`day_${day}_start`] = document.getElementById(`day-${day}-start`).value;
+    for (let zone = 1; zone <= 4; zone++)
+      scheduleData[`day_${day}_zone_${zone}`] = document.getElementById(`day-${day}-zone-${zone}`).value;
   });
   button.disabled = true;
   try {
     await request('/api/schedule', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: new URLSearchParams({
-        days_mask: daysMask,
-        start_time: document.getElementById('start-time').value,
-        zone_1: document.getElementById('zone-timer-1').value,
-        zone_2: document.getElementById('zone-timer-2').value,
-        zone_3: document.getElementById('zone-timer-3').value,
-        zone_4: document.getElementById('zone-timer-4').value
-      })
+      body: new URLSearchParams(scheduleData)
     });
-    message.textContent = daysMask ? 'Schedule saved.' : 'Schedule saved with no active weekdays.';
+    message.textContent = enabledDays ? 'Daily schedules saved.' : 'Schedules saved with no enabled days.';
     message.className = 'message ok';
     scheduleLoaded = false;
     await refreshState();
@@ -341,6 +345,7 @@ document.getElementById('wifi-form').addEventListener('submit', async event => {
   }
 });
 
+buildDaySchedules();
 refreshState();
 setInterval(refreshState, 1500);
 </script>
@@ -361,7 +366,7 @@ void PersistentWebPortal::setup() {
     return;
   }
 
-  this->schedule_pref_ = global_preferences->make_preference<ScheduleSettings>(0x49525247UL, true);
+  this->schedule_pref_ = global_preferences->make_preference<ScheduleSettings>(SETTINGS_KEY, true);
   this->load_settings_();
   if (this->time_->now().is_valid())
     this->time_source_ = TimeSource::SYSTEM;
@@ -681,49 +686,54 @@ void PersistentWebPortal::handle_time_set_() {
 }
 
 void PersistentWebPortal::handle_schedule_save_() {
-  static const char *const REQUIRED_ARGS[] = {"days_mask", "start_time", "zone_1", "zone_2", "zone_3", "zone_4"};
-  for (const char *argument : REQUIRED_ARGS) {
-    if (!this->server_.hasArg(argument)) {
-      this->send_json_error_(400, "Complete schedule data is required");
+  ScheduleSettings updated{};
+  updated.version = SETTINGS_VERSION;
+  for (uint8_t day = 0; day < DAYS_COUNT; day++) {
+    String prefix = F("day_");
+    prefix += static_cast<unsigned int>(day);
+    const String enabled_arg = prefix + F("_enabled");
+    const String start_arg = prefix + F("_start");
+    if (!this->server_.hasArg(enabled_arg) || !this->server_.hasArg(start_arg)) {
+      this->send_json_error_(400, "Complete daily schedule data is required");
       return;
     }
-  }
 
-  const long days_mask = this->server_.arg("days_mask").toInt();
-  if (days_mask < 0 || days_mask > 0x7F) {
-    this->send_json_error_(400, "Invalid weekday selection");
-    return;
-  }
-
-  int start_hour = -1;
-  int start_minute = -1;
-  const String start_time = this->server_.arg("start_time");
-  if (sscanf(start_time.c_str(), "%d:%d", &start_hour, &start_minute) != 2 || start_hour < 0 || start_hour > 23 ||
-      start_minute < 0 || start_minute > 59) {
-    this->send_json_error_(400, "Invalid irrigation start time");
-    return;
-  }
-
-  uint16_t zone_minutes[RELAY_COUNT];
-  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
-    String argument = F("zone_");
-    argument += static_cast<unsigned int>(i + 1);
-    const long minutes = this->server_.arg(argument).toInt();
-    if (minutes < 0 || minutes > MAX_ZONE_MINUTES) {
-      this->send_json_error_(400, "Zone timers must be between 0 and 1440 minutes");
+    const String enabled_value = this->server_.arg(enabled_arg);
+    if (enabled_value != "0" && enabled_value != "1") {
+      this->send_json_error_(400, "Invalid daily enable setting");
       return;
     }
-    zone_minutes[i] = minutes;
+    updated.days[day].enabled = enabled_value == "1";
+
+    int start_hour = -1;
+    int start_minute = -1;
+    const String start_time = this->server_.arg(start_arg);
+    if (sscanf(start_time.c_str(), "%d:%d", &start_hour, &start_minute) != 2 || start_hour < 0 || start_hour > 23 ||
+        start_minute < 0 || start_minute > 59) {
+      this->send_json_error_(400, "Invalid irrigation start time");
+      return;
+    }
+    updated.days[day].start_hour = start_hour;
+    updated.days[day].start_minute = start_minute;
+
+    for (uint8_t zone = 0; zone < RELAY_COUNT; zone++) {
+      String timer_arg = prefix + F("_zone_");
+      timer_arg += static_cast<unsigned int>(zone + 1);
+      if (!this->server_.hasArg(timer_arg)) {
+        this->send_json_error_(400, "Complete daily zone timers are required");
+        return;
+      }
+      const long minutes = this->server_.arg(timer_arg).toInt();
+      if (minutes < 0 || minutes > MAX_ZONE_MINUTES) {
+        this->send_json_error_(400, "Zone timers must be between 0 and 1440 minutes");
+        return;
+      }
+      updated.days[day].zone_minutes[zone] = minutes;
+    }
   }
 
   this->stop_sequence_(true);
-  this->settings_.version = SETTINGS_VERSION;
-  this->settings_.days_mask = days_mask;
-  this->settings_.start_hour = start_hour;
-  this->settings_.start_minute = start_minute;
-  for (uint8_t i = 0; i < RELAY_COUNT; i++)
-    this->settings_.zone_minutes[i] = zone_minutes[i];
-  this->settings_.last_run_date = 0;
+  this->settings_ = updated;
 
   if (!this->save_settings_()) {
     this->send_json_error_(500, "Could not save the schedule");
@@ -741,14 +751,18 @@ void PersistentWebPortal::handle_schedule_stop_() {
 
 void PersistentWebPortal::load_settings_() {
   ScheduleSettings saved{};
-  bool valid = this->schedule_pref_.load(&saved) && saved.version == SETTINGS_VERSION && saved.days_mask <= 0x7F &&
-               saved.start_hour < 24 && saved.start_minute < 60;
+  bool valid = this->schedule_pref_.load(&saved) && saved.version == SETTINGS_VERSION;
   if (valid) {
-    for (uint8_t i = 0; i < RELAY_COUNT; i++) {
-      if (saved.zone_minutes[i] > MAX_ZONE_MINUTES) {
+    for (uint8_t day = 0; day < DAYS_COUNT && valid; day++) {
+      if (saved.days[day].enabled > 1 || saved.days[day].start_hour >= 24 || saved.days[day].start_minute >= 60) {
         valid = false;
         break;
       }
+      for (uint8_t zone = 0; zone < RELAY_COUNT; zone++)
+        if (saved.days[day].zone_minutes[zone] > MAX_ZONE_MINUTES) {
+          valid = false;
+          break;
+        }
     }
   }
 
@@ -759,8 +773,32 @@ void PersistentWebPortal::load_settings_() {
 
   this->settings_ = {};
   this->settings_.version = SETTINGS_VERSION;
-  this->settings_.start_hour = 6;
-  this->settings_.start_minute = 0;
+  for (uint8_t day = 0; day < DAYS_COUNT; day++) {
+    this->settings_.days[day].start_hour = 6;
+    this->settings_.days[day].start_minute = 0;
+  }
+
+  auto legacy_pref = global_preferences->make_preference<LegacyScheduleSettings>(LEGACY_SETTINGS_KEY, true);
+  LegacyScheduleSettings legacy{};
+  bool legacy_valid = legacy_pref.load(&legacy) && legacy.version == 1 && legacy.days_mask <= 0x7F &&
+                      legacy.start_hour < 24 && legacy.start_minute < 60;
+  for (uint8_t zone = 0; zone < RELAY_COUNT && legacy_valid; zone++)
+    legacy_valid = legacy.zone_minutes[zone] <= MAX_ZONE_MINUTES;
+  if (!legacy_valid)
+    return;
+
+  for (uint8_t day = 0; day < DAYS_COUNT; day++) {
+    this->settings_.days[day].enabled = (legacy.days_mask & (1U << day)) != 0;
+    this->settings_.days[day].start_hour = legacy.start_hour;
+    this->settings_.days[day].start_minute = legacy.start_minute;
+    for (uint8_t zone = 0; zone < RELAY_COUNT; zone++)
+      this->settings_.days[day].zone_minutes[zone] = legacy.zone_minutes[zone];
+  }
+  this->settings_.last_run_date = legacy.last_run_date;
+  if (this->save_settings_())
+    ESP_LOGI(TAG, "Migrated the shared schedule to independent daily schedules");
+  else
+    ESP_LOGW(TAG, "Could not persist the migrated daily schedules");
 }
 
 bool PersistentWebPortal::save_settings_() { return this->schedule_pref_.save(&this->settings_); }
@@ -770,13 +808,18 @@ void PersistentWebPortal::check_schedule_(uint32_t now_ms) {
     return;
 
   const ESPTime current = this->time_->now();
-  if (!current.is_valid() || !this->weekday_enabled_(current.day_of_week) || current.hour != this->settings_.start_hour ||
-      current.minute != this->settings_.start_minute)
+  if (!current.is_valid())
+    return;
+  const uint8_t day_index = weekday_index_(current.day_of_week);
+  if (day_index >= DAYS_COUNT)
+    return;
+  const DaySchedule &today = this->settings_.days[day_index];
+  if (!today.enabled || current.hour != today.start_hour || current.minute != today.start_minute)
     return;
 
   bool has_runtime = false;
   for (uint8_t i = 0; i < RELAY_COUNT; i++)
-    has_runtime |= this->settings_.zone_minutes[i] != 0;
+    has_runtime |= today.zone_minutes[i] != 0;
   if (!has_runtime)
     return;
 
@@ -785,6 +828,8 @@ void PersistentWebPortal::check_schedule_(uint32_t now_ms) {
     return;
 
   this->settings_.last_run_date = date_key;
+  for (uint8_t zone = 0; zone < RELAY_COUNT; zone++)
+    this->active_zone_minutes_[zone] = today.zone_minutes[zone];
   if (!this->save_settings_())
     ESP_LOGW(TAG, "Could not persist the last irrigation run date");
   this->start_sequence_(now_ms);
@@ -823,7 +868,7 @@ void PersistentWebPortal::start_sequence_(uint32_t now_ms) {
 }
 
 void PersistentWebPortal::start_next_zone_(uint32_t now_ms) {
-  while (this->next_zone_index_ < RELAY_COUNT && this->settings_.zone_minutes[this->next_zone_index_] == 0)
+  while (this->next_zone_index_ < RELAY_COUNT && this->active_zone_minutes_[this->next_zone_index_] == 0)
     this->next_zone_index_++;
 
   if (this->next_zone_index_ >= RELAY_COUNT) {
@@ -832,7 +877,7 @@ void PersistentWebPortal::start_next_zone_(uint32_t now_ms) {
   }
 
   const uint8_t zone = this->next_zone_index_++;
-  const uint16_t minutes = this->settings_.zone_minutes[zone];
+  const uint16_t minutes = this->active_zone_minutes_[zone];
   this->relays_[zone]->turn_on();
   this->active_zone_ = zone;
   this->sequence_phase_ = SequencePhase::RUNNING_ZONE;
@@ -846,6 +891,7 @@ void PersistentWebPortal::finish_sequence_() {
   this->active_zone_ = NO_ZONE;
   this->next_zone_index_ = 0;
   this->sequence_deadline_ = 0;
+  this->active_zone_minutes_.fill(0);
   ESP_LOGI(TAG, "Irrigation sequence finished");
 }
 
@@ -857,6 +903,7 @@ void PersistentWebPortal::stop_sequence_(bool turn_off_relays) {
   this->active_zone_ = NO_ZONE;
   this->next_zone_index_ = 0;
   this->sequence_deadline_ = 0;
+  this->active_zone_minutes_.fill(0);
   if (was_active)
     ESP_LOGI(TAG, "Irrigation sequence stopped");
 }
@@ -868,17 +915,16 @@ void PersistentWebPortal::turn_all_zones_off_() {
 
 bool PersistentWebPortal::has_pending_zone_() const {
   for (uint8_t i = this->next_zone_index_; i < RELAY_COUNT; i++) {
-    if (this->settings_.zone_minutes[i] != 0)
+    if (this->active_zone_minutes_[i] != 0)
       return true;
   }
   return false;
 }
 
-bool PersistentWebPortal::weekday_enabled_(uint8_t day_of_week) const {
+uint8_t PersistentWebPortal::weekday_index_(uint8_t day_of_week) {
   if (day_of_week < 1 || day_of_week > 7)
-    return false;
-  const uint8_t bit = day_of_week == 1 ? 6 : day_of_week - 2;
-  return (this->settings_.days_mask & (1U << bit)) != 0;
+    return DAYS_COUNT;
+  return day_of_week == 1 ? 6 : day_of_week - 2;
 }
 
 bool PersistentWebPortal::deadline_reached_(uint32_t now, uint32_t deadline) {
@@ -896,7 +942,7 @@ void PersistentWebPortal::handle_not_found_() {
 
 String PersistentWebPortal::build_state_json_() const {
   String response;
-  response.reserve(640);
+  response.reserve(1400);
   response += F("{\"relays\":[");
   for (uint8_t i = 0; i < RELAY_COUNT; i++) {
     if (i != 0)
@@ -949,18 +995,24 @@ String PersistentWebPortal::build_state_json_() const {
       break;
   }
   append_json_string_(response, String(source));
-  response += F("},\"schedule\":{\"days_mask\":");
-  response += static_cast<unsigned int>(this->settings_.days_mask);
-  response += F(",\"start_time\":");
-  char start_time_buffer[8];
-  snprintf(start_time_buffer, sizeof(start_time_buffer), "%02u:%02u", this->settings_.start_hour,
-           this->settings_.start_minute);
-  append_json_string_(response, String(start_time_buffer));
-  response += F(",\"timers\":[");
-  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
-    if (i != 0)
+  response += F("},\"schedule\":{\"days\":[");
+  for (uint8_t day = 0; day < DAYS_COUNT; day++) {
+    if (day != 0)
       response += ',';
-    response += this->settings_.zone_minutes[i];
+    response += F("{\"enabled\":");
+    response += this->settings_.days[day].enabled ? F("true") : F("false");
+    response += F(",\"start_time\":");
+    char start_time_buffer[8];
+    snprintf(start_time_buffer, sizeof(start_time_buffer), "%02u:%02u", this->settings_.days[day].start_hour,
+             this->settings_.days[day].start_minute);
+    append_json_string_(response, String(start_time_buffer));
+    response += F(",\"timers\":[");
+    for (uint8_t zone = 0; zone < RELAY_COUNT; zone++) {
+      if (zone != 0)
+        response += ',';
+      response += this->settings_.days[day].zone_minutes[zone];
+    }
+    response += F("]}");
   }
   response += F("],\"phase\":");
   const char *phase = "idle";

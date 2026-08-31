@@ -40,13 +40,29 @@ class PersistentWebPortal final : public Component,
   static constexpr uint32_t ZONE_GAP_MS = 10000;
   static constexpr uint32_t DNS_PORT = 53;
   static constexpr uint16_t MAX_ZONE_MINUTES = 1440;
-  static constexpr uint8_t SETTINGS_VERSION = 1;
+  static constexpr uint8_t SETTINGS_VERSION = 2;
+  static constexpr uint8_t DAYS_COUNT = 7;
   static constexpr uint8_t NO_ZONE = 0xFF;
+  static constexpr uint32_t LEGACY_SETTINGS_KEY = 0x49525247UL;
+  static constexpr uint32_t SETTINGS_KEY = 0x49525248UL;
 
   enum class SequencePhase : uint8_t { IDLE, RUNNING_ZONE, WAITING_GAP };
   enum class TimeSource : uint8_t { NONE, SYSTEM, MANUAL, NETWORK };
 
+  struct __attribute__((packed)) DaySchedule {
+    uint8_t enabled;
+    uint8_t start_hour;
+    uint8_t start_minute;
+    uint16_t zone_minutes[RELAY_COUNT];
+  };
+
   struct __attribute__((packed)) ScheduleSettings {
+    uint8_t version;
+    DaySchedule days[DAYS_COUNT];
+    uint32_t last_run_date;
+  };
+
+  struct __attribute__((packed)) LegacyScheduleSettings {
     uint8_t version;
     uint8_t days_mask;
     uint8_t start_hour;
@@ -83,7 +99,7 @@ class PersistentWebPortal final : public Component,
   void stop_sequence_(bool turn_off_relays);
   void turn_all_zones_off_();
   bool has_pending_zone_() const;
-  bool weekday_enabled_(uint8_t day_of_week) const;
+  static uint8_t weekday_index_(uint8_t day_of_week);
   static bool deadline_reached_(uint32_t now, uint32_t deadline);
   String build_state_json_() const;
   static void append_json_string_(String &output, const String &value);
@@ -110,6 +126,7 @@ class PersistentWebPortal final : public Component,
   TimeSource time_source_{TimeSource::NONE};
   uint8_t active_zone_{NO_ZONE};
   uint8_t next_zone_index_{0};
+  std::array<uint16_t, RELAY_COUNT> active_zone_minutes_{};
   uint32_t sequence_deadline_{0};
   uint32_t last_ap_check_{0};
   uint32_t last_scan_started_{0};
