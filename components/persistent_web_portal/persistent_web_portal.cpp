@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <esp_netif.h>
 #include <sys/time.h>
 #include <vector>
 
@@ -508,11 +509,46 @@ void PersistentWebPortal::ensure_ap_() {
   // created before that interface cycle can remain unreachable from AP clients.
   // Reopen the wildcard listener after the AP_START event has propagated.
   this->set_timeout("restart_web_services", 500, [this]() {
+    if (!this->restore_ap_network_())
+      ESP_LOGW(TAG, "Persistent AP network interface could not be fully restored");
     this->server_.begin();
     this->start_dns_();
     ESP_LOGI(TAG, "Portal listeners restarted for the persistent access point");
   });
   ESP_LOGI(TAG, "Persistent access point restored");
+}
+
+bool PersistentWebPortal::restore_ap_network_() {
+  esp_netif_t *ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  if (ap_netif == nullptr) {
+    ESP_LOGW(TAG, "Could not find the ESP32 AP network interface");
+    return false;
+  }
+
+  esp_err_t result = esp_netif_dhcps_stop(ap_netif);
+  if (result != ESP_OK && result != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+    ESP_LOGW(TAG, "Could not stop the AP DHCP server (%s)", esp_err_to_name(result));
+    return false;
+  }
+
+  esp_netif_ip_info_t ip_info{};
+  esp_netif_set_ip4_addr(&ip_info.ip, 192, 168, 4, 1);
+  esp_netif_set_ip4_addr(&ip_info.gw, 192, 168, 4, 1);
+  esp_netif_set_ip4_addr(&ip_info.netmask, 255, 255, 255, 0);
+  result = esp_netif_set_ip_info(ap_netif, &ip_info);
+  if (result != ESP_OK) {
+    ESP_LOGW(TAG, "Could not restore the AP address (%s)", esp_err_to_name(result));
+    return false;
+  }
+
+  result = esp_netif_dhcps_start(ap_netif);
+  if (result != ESP_OK && result != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
+    ESP_LOGW(TAG, "Could not restart the AP DHCP server (%s)", esp_err_to_name(result));
+    return false;
+  }
+
+  ESP_LOGI(TAG, "Persistent AP network restored at 192.168.4.1");
+  return true;
 }
 
 void PersistentWebPortal::start_dns_() {

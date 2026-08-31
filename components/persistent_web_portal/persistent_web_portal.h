@@ -78,6 +78,7 @@ class PersistentWebPortal final : public Component,
   };
 
   void ensure_ap_();
+  bool restore_ap_network_();
   void start_dns_();
   void send_index_();
   void send_json_error_(int status, const char *message);
