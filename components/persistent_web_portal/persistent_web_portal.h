@@ -83,6 +83,7 @@ class PersistentWebPortal final : public Component,
   void send_index_();
   void send_json_error_(int status, const char *message);
   void handle_state_();
+  void handle_relays_();
   void handle_relay_();
   void handle_wifi_scan_();
   void handle_wifi_connect_();

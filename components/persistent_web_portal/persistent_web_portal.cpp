@@ -121,6 +121,15 @@ let scheduleLoaded = false;
 let timeInputInitialized = false;
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+function applyRelayStates(states) {
+  relayStates = states;
+  states.forEach((on, index) => {
+    const button = document.getElementById(`r${index + 1}`);
+    button.textContent = on ? 'ON' : 'OFF';
+    button.classList.toggle('off', !on);
+  });
+}
+
 function buildDaySchedules() {
   const container = document.getElementById('day-schedules');
   DAY_NAMES.forEach((name, day) => {
@@ -149,12 +158,7 @@ async function request(url, options) {
 async function refreshState() {
   try {
     const state = await request('/api/state');
-    relayStates = state.relays;
-    state.relays.forEach((on, index) => {
-      const button = document.getElementById(`r${index + 1}`);
-      button.textContent = on ? 'ON' : 'OFF';
-      button.classList.toggle('off', !on);
-    });
+    applyRelayStates(state.relays);
     document.getElementById('wifi-status').textContent = state.wifi.connected ? `Connected to ${state.wifi.ssid}` : 'Not connected';
     document.getElementById('sta-ip').textContent = state.wifi.sta_ip || '—';
     document.getElementById('ap-ip').textContent = state.wifi.ap_ip || '192.168.4.1';
@@ -189,6 +193,13 @@ async function refreshState() {
   } catch (_) {}
 }
 
+async function refreshRelays() {
+  try {
+    const state = await request('/api/relays');
+    applyRelayStates(state.relays);
+  } catch (_) {}
+}
+
 function browserDateTime() {
   const date = new Date();
   const pad = value => String(value).padStart(2, '0');
@@ -197,14 +208,17 @@ function browserDateTime() {
 
 async function toggleRelay(channel) {
   const button = document.getElementById(`r${channel}`);
+  const requestedState = !relayStates[channel - 1];
   button.disabled = true;
   try {
-    await request('/api/relay', {
+    const result = await request('/api/relay', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: new URLSearchParams({channel, state: relayStates[channel - 1] ? 'off' : 'on'})
+      body: new URLSearchParams({channel, state: requestedState ? 'on' : 'off'})
     });
-    await refreshState();
+    relayStates[channel - 1] = result.state;
+    button.textContent = result.state ? 'ON' : 'OFF';
+    button.classList.toggle('off', !result.state);
   } finally {
     button.disabled = false;
   }
@@ -347,7 +361,9 @@ document.getElementById('wifi-form').addEventListener('submit', async event => {
 });
 
 buildDaySchedules();
+refreshRelays();
 refreshState();
+setInterval(refreshRelays, 1000);
 setInterval(refreshState, 1500);
 </script>
 </body>
@@ -383,6 +399,7 @@ void PersistentWebPortal::setup() {
 
   this->server_.on("/", HTTP_GET, [this]() { this->send_index_(); });
   this->server_.on("/api/state", HTTP_GET, [this]() { this->handle_state_(); });
+  this->server_.on("/api/relays", HTTP_GET, [this]() { this->handle_relays_(); });
   this->server_.on("/api/relay", HTTP_POST, [this]() { this->handle_relay_(); });
   this->server_.on("/api/wifi/scan", HTTP_GET, [this]() { this->handle_wifi_scan_(); });
   this->server_.on("/api/wifi/connect", HTTP_POST, [this]() { this->handle_wifi_connect_(); });
@@ -573,6 +590,20 @@ void PersistentWebPortal::handle_state_() {
   this->server_.send(200, "application/json", this->build_state_json_());
 }
 
+void PersistentWebPortal::handle_relays_() {
+  String response;
+  response.reserve(48);
+  response += F("{\"relays\":[");
+  for (uint8_t i = 0; i < RELAY_COUNT; i++) {
+    if (i != 0)
+      response += ',';
+    response += this->relays_[i]->state ? F("true") : F("false");
+  }
+  response += F("]}");
+  this->server_.sendHeader("Cache-Control", "no-store");
+  this->server_.send(200, "application/json", response);
+}
+
 void PersistentWebPortal::handle_relay_() {
   if (!this->server_.hasArg("channel") || !this->server_.hasArg("state")) {
     this->send_json_error_(400, "channel and state are required");
@@ -600,7 +631,10 @@ void PersistentWebPortal::handle_relay_() {
     return;
   }
 
-  this->server_.send(200, "application/json", F("{\"ok\":true}"));
+  String response = F("{\"ok\":true,\"state\":");
+  response += relay->state ? F("true") : F("false");
+  response += '}';
+  this->server_.send(200, "application/json", response);
 }
 
 void PersistentWebPortal::handle_wifi_scan_() {
