@@ -15,7 +15,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>4-Relay Controller</title>
+  <title>Irrigation Controller</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { margin: 0; background: #111827; color: #f9fafb; }
@@ -40,7 +40,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 </head>
 <body>
 <main>
-  <h1>4-Relay Controller</h1>
+  <h1>Irrigation Controller</h1>
   <p class="muted">Works directly through this device access point. Home Wi-Fi is optional.</p>
 
   <section>
@@ -297,7 +297,10 @@ void PersistentWebPortal::ensure_ap_() {
     ESP_LOGW(TAG, "Could not read Wi-Fi mode (%d)", get_mode_result);
     return;
   }
-  if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA)
+  // Scanning requires the station interface. A device without saved home-Wi-Fi
+  // credentials normally starts in AP-only mode, so promote every mode except
+  // AP+STA to AP+STA while preserving the configured access point.
+  if (mode == WIFI_MODE_APSTA)
     return;
 
   const auto ap = this->wifi_->get_ap();
