@@ -44,12 +44,12 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   <p class="muted">Works directly through this device access point. Home Wi-Fi is optional.</p>
 
   <section>
-    <h2>Relays</h2>
+    <h2>Zones</h2>
     <div class="relays">
-      <div class="relay"><h3>Relay 1</h3><button id="r1" onclick="toggleRelay(1)">Loading...</button></div>
-      <div class="relay"><h3>Relay 2</h3><button id="r2" onclick="toggleRelay(2)">Loading...</button></div>
-      <div class="relay"><h3>Relay 3</h3><button id="r3" onclick="toggleRelay(3)">Loading...</button></div>
-      <div class="relay"><h3>Relay 4</h3><button id="r4" onclick="toggleRelay(4)">Loading...</button></div>
+      <div class="relay"><h3>Zone 1</h3><button id="r1" onclick="toggleRelay(1)">Loading...</button></div>
+      <div class="relay"><h3>Zone 2</h3><button id="r2" onclick="toggleRelay(2)">Loading...</button></div>
+      <div class="relay"><h3>Zone 3</h3><button id="r3" onclick="toggleRelay(3)">Loading...</button></div>
+      <div class="relay"><h3>Zone 4</h3><button id="r4" onclick="toggleRelay(4)">Loading...</button></div>
     </div>
   </section>
 

@@ -43,6 +43,7 @@ async def to_code(config):
     for library in ("Network", "WiFi", "FS", "WebServer", "AsyncUDP", "DNSServer"):
         cg.add_library(library, None)
 
+    wifi.request_wifi_scan_results()
     wifi.request_wifi_scan_results_listener()
     wifi.request_wifi_connect_state_listener()
 
