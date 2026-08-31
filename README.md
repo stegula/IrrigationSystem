@@ -4,13 +4,13 @@ This repository contains the custom ESPHome component used by the irrigation con
 
 ## Persistent web portal
 
-`persistent_web_portal` keeps the ESP32 access point available while the device is also connected to a home Wi-Fi network. Its local interface provides Wi-Fi scanning and setup, a control to forget the saved home network, four zone controls, automatic or manual time setup, and seven independent daily irrigation schedules. Every weekday has its own enable setting, start time, and four zone timers.
+`persistent_web_portal` keeps the ESP32 access point available while the device is also connected to a home Wi-Fi network. Its bilingual English/Serbian Latin interface provides Wi-Fi scanning and setup, a control to forget the saved home network, four zone controls, automatic or manual time setup, and seven independent daily irrigation schedules. Every weekday has its own enable setting, start time, and four zone timers. The flag buttons at the top switch language immediately and remember the selection in the browser.
 
 Import it directly from ESPHome:
 
 ```yaml
 external_components:
-  - source: github://stegula/IrrigationSystem@v0.5.0
+  - source: github://stegula/IrrigationSystem@v0.6.0
     components:
       - persistent_web_portal
     refresh: 1h

@@ -49,72 +49,79 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
     .message { min-height: 1.4em; margin-top: 10px; }
     .ok { color: #6ee7b7; }
     .error { color: #fca5a5; }
+    .language-switch { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+    .language-switch button { width: auto; min-height: 38px; padding: 6px 11px; background: #374151; border-color: #4b5563; }
+    .language-switch button.active { background: #2563eb; border-color: #60a5fa; }
   </style>
 </head>
 <body>
 <main>
-  <h1>Irrigation Controller</h1>
-  <p class="muted">Works directly through this device access point. Home Wi-Fi is optional.</p>
+  <nav class="language-switch" aria-label="Language">
+    <button type="button" id="lang-en" onclick="setLanguage('en')" aria-label="English">🇬🇧 English</button>
+    <button type="button" id="lang-sr" onclick="setLanguage('sr')" aria-label="Srpski">🇷🇸 Srpski</button>
+  </nav>
+  <h1 data-i18n="title">Irrigation Controller</h1>
+  <p class="muted" data-i18n="subtitle">Works directly through this device access point. Home Wi-Fi is optional.</p>
 
   <section>
-    <h2>Zones</h2>
+    <h2 data-i18n="zones">Zones</h2>
     <div class="relays">
-      <div class="relay"><h3>Zone 1</h3><button id="r1" onclick="toggleRelay(1)">Loading...</button></div>
-      <div class="relay"><h3>Zone 2</h3><button id="r2" onclick="toggleRelay(2)">Loading...</button></div>
-      <div class="relay"><h3>Zone 3</h3><button id="r3" onclick="toggleRelay(3)">Loading...</button></div>
-      <div class="relay"><h3>Zone 4</h3><button id="r4" onclick="toggleRelay(4)">Loading...</button></div>
+      <div class="relay"><h3 data-i18n="zone1">Zone 1</h3><button id="r1" onclick="toggleRelay(1)">Loading...</button></div>
+      <div class="relay"><h3 data-i18n="zone2">Zone 2</h3><button id="r2" onclick="toggleRelay(2)">Loading...</button></div>
+      <div class="relay"><h3 data-i18n="zone3">Zone 3</h3><button id="r3" onclick="toggleRelay(3)">Loading...</button></div>
+      <div class="relay"><h3 data-i18n="zone4">Zone 4</h3><button id="r4" onclick="toggleRelay(4)">Loading...</button></div>
     </div>
   </section>
 
   <section>
-    <h2>Date and Time</h2>
+    <h2 data-i18n="date_time">Date and Time</h2>
     <div class="status">
-      <div><strong>Current:</strong> <span id="current-time">Not set</span></div>
-      <div><strong>Source:</strong> <span id="time-source">Unavailable</span></div>
+      <div><strong data-i18n="current">Current:</strong> <span id="current-time">Not set</span></div>
+      <div><strong data-i18n="source">Source:</strong> <span id="time-source">Unavailable</span></div>
     </div>
-    <p class="muted">Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.</p>
+    <p class="muted" data-i18n="time_help">Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.</p>
     <form id="time-form">
-      <label for="manual-datetime">Manual current date and time</label>
+      <label for="manual-datetime" data-i18n="manual_datetime">Manual current date and time</label>
       <div class="row">
         <input id="manual-datetime" type="datetime-local" step="1" required>
-        <button type="submit" id="set-time">Set Time</button>
+        <button type="submit" id="set-time" data-i18n="set_time">Set Time</button>
       </div>
       <div id="time-message" class="message muted"></div>
     </form>
   </section>
 
   <section>
-    <h2>Irrigation Schedule</h2>
-    <div><strong>Sequence:</strong> <span id="sequence-status">Idle</span></div>
+    <h2 data-i18n="schedule">Irrigation Schedule</h2>
+    <div><strong data-i18n="sequence">Sequence:</strong> <span id="sequence-status">Idle</span></div>
     <form id="schedule-form">
-      <p class="muted">Each day has its own start time and zone timers. Disable a day to prevent its schedule from running.</p>
+      <p class="muted" data-i18n="schedule_help">Each day has its own start time and zone timers. Disable a day to prevent its schedule from running.</p>
       <div id="day-schedules"></div>
       <div class="actions">
-        <button type="submit" id="save-schedule">Save Schedule</button>
-        <button type="button" class="stop" id="stop-sequence" onclick="stopSequence()">Stop Irrigation</button>
+        <button type="submit" id="save-schedule" data-i18n="save_schedule">Save Schedule</button>
+        <button type="button" class="stop" id="stop-sequence" onclick="stopSequence()" data-i18n="stop_irrigation">Stop Irrigation</button>
       </div>
       <div id="schedule-message" class="message muted"></div>
     </form>
   </section>
 
   <section>
-    <h2>Home Wi-Fi (optional)</h2>
+    <h2 data-i18n="home_wifi">Home Wi-Fi (optional)</h2>
     <div class="status">
-      <div><strong>Status:</strong> <span id="wifi-status">Loading...</span></div>
-      <div><strong>Home IP:</strong> <span id="sta-ip">—</span></div>
-      <div><strong>Direct IP:</strong> <span id="ap-ip">192.168.4.1</span></div>
+      <div><strong data-i18n="status">Status:</strong> <span id="wifi-status">Loading...</span></div>
+      <div><strong data-i18n="home_ip">Home IP:</strong> <span id="sta-ip">—</span></div>
+      <div><strong data-i18n="direct_ip">Direct IP:</strong> <span id="ap-ip">192.168.4.1</span></div>
     </div>
     <form id="wifi-form">
-      <label for="ssid">Network</label>
+      <label for="ssid" data-i18n="network">Network</label>
       <div class="row">
         <select id="ssid" required><option value="">Press Scan</option></select>
-        <button type="button" id="scan" onclick="scanWifi()">Scan</button>
+        <button type="button" id="scan" onclick="scanWifi()" data-i18n="scan">Scan</button>
       </div>
-      <label for="password">Password</label>
+      <label for="password" data-i18n="password">Password</label>
       <input id="password" type="password" maxlength="64" autocomplete="current-password" placeholder="Leave empty for an open network">
       <div class="actions">
-        <button type="submit" id="connect">Connect</button>
-        <button type="button" class="stop" id="forget-wifi" onclick="forgetWifi()">Forget Home Wi-Fi</button>
+        <button type="submit" id="connect" data-i18n="connect">Connect</button>
+        <button type="button" class="stop" id="forget-wifi" onclick="forgetWifi()" data-i18n="forget_wifi">Forget Home Wi-Fi</button>
       </div>
       <div id="wifi-message" class="message muted"></div>
     </form>
@@ -125,59 +132,205 @@ let relayStates = [false, false, false, false];
 let scheduleRevision = null;
 let scheduleDirty = false;
 let timeInputInitialized = false;
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+let lastStatusState = null;
+let lastScheduleState = null;
+let currentLanguage = 'en';
+try { currentLanguage = localStorage.getItem('irrigation-language') === 'sr' ? 'sr' : 'en'; } catch (_) {}
+
+const I18N = {
+  en: {
+    title: 'Irrigation Controller', subtitle: 'Works directly through this device access point. Home Wi-Fi is optional.',
+    zones: 'Zones', zone1: 'Zone 1', zone2: 'Zone 2', zone3: 'Zone 3', zone4: 'Zone 4', loading: 'Loading...',
+    date_time: 'Date and Time', current: 'Current:', source: 'Source:', not_set: 'Not set', unavailable: 'Unavailable',
+    time_help: 'Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.',
+    manual_datetime: 'Manual current date and time', set_time: 'Set Time',
+    schedule: 'Irrigation Schedule', sequence: 'Sequence:', idle: 'Idle',
+    schedule_help: 'Each day has its own start time and zone timers. Disable a day to prevent its schedule from running.',
+    save_schedule: 'Save Schedule', stop_irrigation: 'Stop Irrigation', home_wifi: 'Home Wi-Fi (optional)',
+    status: 'Status:', home_ip: 'Home IP:', direct_ip: 'Direct IP:', network: 'Network', press_scan: 'Press Scan', scan: 'Scan',
+    password: 'Password', password_placeholder: 'Leave empty for an open network', connect: 'Connect', forget_wifi: 'Forget Home Wi-Fi',
+    days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    enable_day: 'Enable {day}', irrigation_start: 'Irrigation Start Time', irrigation_timer: 'Irrigation Timer Zone {zone} (minutes)',
+    relay_on: 'ON', relay_off: 'OFF', connected_to: 'Connected to {ssid}', not_connected: 'Not connected',
+    source_network: 'Internet (SNTP)', source_manual: 'Manual', source_system: 'System clock',
+    watering: 'Zone {zone} running — {seconds}s remaining', delay: '10-second delay — {seconds}s remaining',
+    request_failed: 'Request failed ({status})', scanning: 'Scanning...', scan_pause: 'Scanning can briefly pause the direct connection.',
+    no_networks: 'No networks found', secured: 'secured', open: 'open', found_networks: 'Found {count} network(s).',
+    scan_failed: 'Scan failed ({status})', scan_failed_retry: 'Scan failed — try again',
+    forget_confirm: 'Forget the saved home Wi-Fi network? The Irrigation Controller access point will remain available.',
+    wifi_forgotten: 'Home Wi-Fi forgotten. Continue using the Irrigation Controller access point.',
+    time_updated: 'Device date and time updated.', schedules_saved: 'Daily schedules saved.',
+    schedules_saved_disabled: 'Schedules saved with no enabled days.', irrigation_stopped: 'Irrigation stopped.',
+    connecting: 'Connecting. This page may pause briefly; the direct access point will return automatically.'
+  },
+  sr: {
+    title: 'Kontroler navodnjavanja', subtitle: 'Radi direktno preko pristupne tačke uređaja. Kućni Wi-Fi nije obavezan.',
+    zones: 'Zone', zone1: 'Zona 1', zone2: 'Zona 2', zone3: 'Zona 3', zone4: 'Zona 4', loading: 'Učitavanje...',
+    date_time: 'Datum i vreme', current: 'Trenutno:', source: 'Izvor:', not_set: 'Nije podešeno', unavailable: 'Nedostupno',
+    time_help: 'Vreme se automatski usklađuje preko interneta kada je kućni Wi-Fi dostupan. Za rad bez interneta može se podesiti i ručno.',
+    manual_datetime: 'Ručno podešavanje trenutnog datuma i vremena', set_time: 'Podesi vreme',
+    schedule: 'Raspored navodnjavanja', sequence: 'Sekvenca:', idle: 'Mirovanje',
+    schedule_help: 'Svaki dan ima posebno vreme početka i trajanje rada zona. Isključite dan da se njegov raspored ne bi pokrenuo.',
+    save_schedule: 'Sačuvaj raspored', stop_irrigation: 'Zaustavi navodnjavanje', home_wifi: 'Kućni Wi-Fi (opciono)',
+    status: 'Status:', home_ip: 'Kućna IP adresa:', direct_ip: 'Direktna IP adresa:', network: 'Mreža', press_scan: 'Pritisnite Skeniraj', scan: 'Skeniraj',
+    password: 'Lozinka', password_placeholder: 'Ostavite prazno za otvorenu mrežu', connect: 'Poveži', forget_wifi: 'Zaboravi kućni Wi-Fi',
+    days: ['Ponedeljak', 'Utorak', 'Sreda', 'Četvrtak', 'Petak', 'Subota', 'Nedelja'],
+    enable_day: 'Omogući: {day}', irrigation_start: 'Vreme početka navodnjavanja', irrigation_timer: 'Tajmer navodnjavanja - Zona {zone} (minuti)',
+    relay_on: 'UKLJUČENO', relay_off: 'ISKLJUČENO', connected_to: 'Povezano na {ssid}', not_connected: 'Nije povezano',
+    source_network: 'Internet (SNTP)', source_manual: 'Ručno', source_system: 'Sistemski sat',
+    watering: 'Zona {zone} radi — preostalo {seconds} s', delay: 'Pauza od 10 sekundi — preostalo {seconds} s',
+    request_failed: 'Zahtev nije uspeo ({status})', scanning: 'Skeniranje...', scan_pause: 'Skeniranje može nakratko prekinuti direktnu vezu.',
+    no_networks: 'Nijedna mreža nije pronađena', secured: 'zaštićena', open: 'otvorena', found_networks: 'Pronađeno mreža: {count}.',
+    scan_failed: 'Skeniranje nije uspelo ({status})', scan_failed_retry: 'Skeniranje nije uspelo — pokušajte ponovo',
+    forget_confirm: 'Zaboraviti sačuvanu kućnu Wi-Fi mrežu? Pristupna tačka Kontroler navodnjavanja ostaće dostupna.',
+    wifi_forgotten: 'Kućni Wi-Fi je zaboravljen. Nastavite preko pristupne tačke Kontroler navodnjavanja.',
+    time_updated: 'Datum i vreme uređaja su ažurirani.', schedules_saved: 'Dnevni rasporedi su sačuvani.',
+    schedules_saved_disabled: 'Rasporedi su sačuvani, ali nijedan dan nije omogućen.', irrigation_stopped: 'Navodnjavanje je zaustavljeno.',
+    connecting: 'Povezivanje je u toku. Stranica može nakratko zastati; direktna pristupna tačka će se automatski vratiti.'
+  }
+};
+
+function t(key, values = {}) {
+  let text = I18N[currentLanguage][key] ?? I18N.en[key] ?? key;
+  Object.entries(values).forEach(([name, value]) => { text = text.split(`{${name}}`).join(value); });
+  return text;
+}
+
+const SERVER_ERRORS_SR = {
+  'channel and state are required': 'Kanal i stanje su obavezni.',
+  'channel must be between 1 and 4': 'Kanal mora biti između 1 i 4.',
+  'state must be on or off': 'Stanje mora biti uključeno ili isključeno.',
+  'Please wait before starting another Wi-Fi scan': 'Sačekajte pre pokretanja novog Wi-Fi skeniranja.',
+  'Wi-Fi scan could not start; try again shortly': 'Wi-Fi skeniranje nije moglo da se pokrene; pokušajte ponovo uskoro.',
+  'ssid and password are required': 'Naziv mreže i lozinka su obavezni.',
+  'SSID must contain 1 to 32 characters': 'Naziv mreže mora imati od 1 do 32 znaka.',
+  'Password must be empty, 8 to 63 characters, or a 64-digit hexadecimal key': 'Lozinka mora biti prazna, imati od 8 do 63 znaka ili biti heksadecimalni ključ od 64 znaka.',
+  'Could not erase the saved home Wi-Fi network': 'Sačuvana kućna Wi-Fi mreža nije mogla da se obriše.',
+  'datetime is required': 'Datum i vreme su obavezni.',
+  'Use a valid date and time': 'Unesite ispravan datum i vreme.',
+  'Date or time is outside the supported range': 'Datum ili vreme su van podržanog opsega.',
+  'Date or time is invalid': 'Datum ili vreme nisu ispravni.',
+  'Could not set the device clock': 'Sat uređaja nije mogao da se podesi.',
+  'Complete daily schedule data is required': 'Potrebni su potpuni podaci dnevnog rasporeda.',
+  'Invalid daily enable setting': 'Postavka omogućavanja dana nije ispravna.',
+  'Invalid irrigation start time': 'Vreme početka navodnjavanja nije ispravno.',
+  'Complete daily zone timers are required': 'Potrebni su svi dnevni tajmeri zona.',
+  'Zone timers must be between 0 and 1440 minutes': 'Tajmeri zona moraju biti između 0 i 1440 minuta.',
+  'Could not save the schedule': 'Raspored nije mogao da se sačuva.',
+  'not found': 'Nije pronađeno.'
+};
+
+function translateError(message) {
+  return currentLanguage === 'sr' ? (SERVER_ERRORS_SR[message] || message) : message;
+}
+
+function captureScheduleForm() {
+  const saved = [];
+  for (let day = 0; day < 7; day++) {
+    const enabled = document.getElementById(`day-${day}-enabled`);
+    if (!enabled) return null;
+    saved.push({
+      enabled: enabled.checked,
+      start_time: document.getElementById(`day-${day}-start`).value,
+      timers: [1, 2, 3, 4].map(zone => Number(document.getElementById(`day-${day}-zone-${zone}`).value))
+    });
+  }
+  return saved;
+}
+
+function setLanguage(language) {
+  const savedForm = captureScheduleForm();
+  currentLanguage = language === 'sr' ? 'sr' : 'en';
+  try { localStorage.setItem('irrigation-language', currentLanguage); } catch (_) {}
+  document.documentElement.lang = currentLanguage === 'sr' ? 'sr-Latn' : 'en';
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
+  document.getElementById('password').placeholder = t('password_placeholder');
+  document.getElementById('lang-en').classList.toggle('active', currentLanguage === 'en');
+  document.getElementById('lang-sr').classList.toggle('active', currentLanguage === 'sr');
+  document.getElementById('lang-en').setAttribute('aria-pressed', currentLanguage === 'en');
+  document.getElementById('lang-sr').setAttribute('aria-pressed', currentLanguage === 'sr');
+  buildDaySchedules(savedForm || lastScheduleState?.days);
+  applyRelayStates(relayStates);
+  if (lastStatusState) applyStatusState(lastStatusState);
+  if (lastScheduleState) applyScheduleStatus(lastScheduleState);
+  const ssid = document.getElementById('ssid');
+  if (ssid.options.length === 1 && !ssid.value) ssid.options[0].textContent = t('press_scan');
+}
 
 function applyRelayStates(states) {
   relayStates = states;
   states.forEach((on, index) => {
     const button = document.getElementById(`r${index + 1}`);
-    button.textContent = on ? 'ON' : 'OFF';
+    button.textContent = on ? t('relay_on') : t('relay_off');
     button.classList.toggle('off', !on);
   });
 }
 
-function buildDaySchedules() {
+function buildDaySchedules(values = null) {
   const container = document.getElementById('day-schedules');
-  DAY_NAMES.forEach((name, day) => {
+  container.innerHTML = '';
+  I18N[currentLanguage].days.forEach((name, day) => {
     const details = document.createElement('details');
     details.className = 'day-card';
     details.open = day === 0;
     details.innerHTML = `<summary>${name}</summary>
       <div class="day-content">
-        <label class="enable-row"><input id="day-${day}-enabled" type="checkbox">Enable ${name}</label>
-        <label>Irrigation Start Time<input id="day-${day}-start" type="time" required></label>
+        <label class="enable-row"><input id="day-${day}-enabled" type="checkbox">${t('enable_day', {day: name})}</label>
+        <label>${t('irrigation_start')}<input id="day-${day}-start" type="time" required></label>
         <div class="timers">
-          ${[1, 2, 3, 4].map(zone => `<label>Irigation Timer Zone ${zone} (minutes)<input id="day-${day}-zone-${zone}" type="number" min="0" max="1440" step="1" value="0" required></label>`).join('')}
+          ${[1, 2, 3, 4].map(zone => `<label>${t('irrigation_timer', {zone})}<input id="day-${day}-zone-${zone}" type="number" min="0" max="1440" step="1" value="0" required></label>`).join('')}
         </div>
       </div>`;
     container.appendChild(details);
+    const profile = values?.[day];
+    if (profile) {
+      document.getElementById(`day-${day}-enabled`).checked = profile.enabled;
+      document.getElementById(`day-${day}-start`).value = profile.start_time;
+      profile.timers.forEach((minutes, zone) => { document.getElementById(`day-${day}-zone-${zone + 1}`).value = minutes; });
+    }
   });
 }
 
 async function request(url, options) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  if (!response.ok) throw new Error(translateError(data.error) || t('request_failed', {status: response.status}));
   return data;
+}
+
+function applyStatusState(state) {
+  lastStatusState = state;
+  document.getElementById('wifi-status').textContent = state.wifi.connected ? t('connected_to', {ssid: state.wifi.ssid}) : t('not_connected');
+  document.getElementById('sta-ip').textContent = state.wifi.sta_ip || '—';
+  document.getElementById('ap-ip').textContent = state.wifi.ap_ip || '192.168.4.1';
+  document.getElementById('current-time').textContent = state.time.valid ? state.time.datetime.replace('T', ' ') : t('not_set');
+  document.getElementById('time-source').textContent = {
+    network: t('source_network'), manual: t('source_manual'), system: t('source_system'), unavailable: t('unavailable')
+  }[state.time.source] || state.time.source;
 }
 
 async function refreshStatus() {
   try {
     const state = await request('/api/status');
-    document.getElementById('wifi-status').textContent = state.wifi.connected ? `Connected to ${state.wifi.ssid}` : 'Not connected';
-    document.getElementById('sta-ip').textContent = state.wifi.sta_ip || '—';
-    document.getElementById('ap-ip').textContent = state.wifi.ap_ip || '192.168.4.1';
-
-    document.getElementById('current-time').textContent = state.time.valid ? state.time.datetime.replace('T', ' ') : 'Not set';
-    document.getElementById('time-source').textContent = {
-      network: 'Internet (SNTP)', manual: 'Manual', system: 'System clock', unavailable: 'Unavailable'
-    }[state.time.source] || state.time.source;
+    applyStatusState(state);
     if (!timeInputInitialized) {
       document.getElementById('manual-datetime').value = state.time.valid ? state.time.datetime : browserDateTime();
       timeInputInitialized = true;
     }
 
   } catch (_) {}
+}
+
+function applyScheduleStatus(state) {
+  lastScheduleState = state;
+  let sequenceText = t('idle');
+  if (state.phase === 'watering')
+    sequenceText = t('watering', {zone: state.active_zone, seconds: state.remaining_seconds});
+  else if (state.phase === 'delay')
+    sequenceText = t('delay', {seconds: state.remaining_seconds});
+  document.getElementById('sequence-status').textContent = sequenceText;
+  document.getElementById('stop-sequence').disabled = state.phase === 'idle';
 }
 
 async function refreshSchedule() {
@@ -193,14 +346,7 @@ async function refreshSchedule() {
       });
       scheduleRevision = state.revision;
     }
-
-    let sequenceText = 'Idle';
-    if (state.phase === 'watering')
-      sequenceText = `Zone ${state.active_zone} running — ${state.remaining_seconds}s remaining`;
-    else if (state.phase === 'delay')
-      sequenceText = `10-second delay — ${state.remaining_seconds}s remaining`;
-    document.getElementById('sequence-status').textContent = sequenceText;
-    document.getElementById('stop-sequence').disabled = state.phase === 'idle';
+    applyScheduleStatus(state);
   } catch (_) {}
 }
 
@@ -228,7 +374,7 @@ async function toggleRelay(channel) {
       body: new URLSearchParams({channel, state: requestedState ? 'on' : 'off'})
     });
     relayStates[channel - 1] = result.state;
-    button.textContent = result.state ? 'ON' : 'OFF';
+    button.textContent = result.state ? t('relay_on') : t('relay_off');
     button.classList.toggle('off', !result.state);
   } finally {
     button.disabled = false;
@@ -240,8 +386,8 @@ async function scanWifi() {
   const select = document.getElementById('ssid');
   const message = document.getElementById('wifi-message');
   button.disabled = true;
-  select.innerHTML = '<option value="">Scanning...</option>';
-  message.textContent = 'Scanning can briefly pause the direct connection.';
+  select.innerHTML = `<option value="">${t('scanning')}</option>`;
+  message.textContent = t('scan_pause');
   message.className = 'message muted';
   try {
     let networks;
@@ -252,22 +398,22 @@ async function scanWifi() {
         await new Promise(resolve => setTimeout(resolve, 500));
         continue;
       }
-      if (!response.ok) throw new Error(data.error || `Scan failed (${response.status})`);
+      if (!response.ok) throw new Error(translateError(data.error) || t('scan_failed', {status: response.status}));
       networks = data;
       break;
     }
     select.innerHTML = '';
-    if (!networks.length) select.innerHTML = '<option value="">No networks found</option>';
+    if (!networks.length) select.innerHTML = `<option value="">${t('no_networks')}</option>`;
     networks.forEach(network => {
       const option = document.createElement('option');
       option.value = network.ssid;
-      option.textContent = `${network.ssid} (${network.rssi} dBm${network.secure ? ', secured' : ', open'})`;
+      option.textContent = `${network.ssid} (${network.rssi} dBm, ${network.secure ? t('secured') : t('open')})`;
       select.appendChild(option);
     });
-    message.textContent = `Found ${networks.length} network${networks.length === 1 ? '' : 's'}.`;
+    message.textContent = t('found_networks', {count: networks.length});
     message.className = 'message ok';
   } catch (error) {
-    select.innerHTML = '<option value="">Scan failed — try again</option>';
+    select.innerHTML = `<option value="">${t('scan_failed_retry')}</option>`;
     message.textContent = error.message;
     message.className = 'message error';
   } finally {
@@ -276,14 +422,14 @@ async function scanWifi() {
 }
 
 async function forgetWifi() {
-  if (!confirm('Forget the saved home Wi-Fi network? The Irrigation Controller access point will remain available.'))
+  if (!confirm(t('forget_confirm')))
     return;
   const button = document.getElementById('forget-wifi');
   const message = document.getElementById('wifi-message');
   button.disabled = true;
   try {
     await request('/api/wifi/forget', {method: 'POST'});
-    message.textContent = 'Home Wi-Fi forgotten. Continue using the Irrigation Controller access point.';
+    message.textContent = t('wifi_forgotten');
     message.className = 'message ok';
     document.getElementById('password').value = '';
   } catch (error) {
@@ -304,7 +450,7 @@ document.getElementById('time-form').addEventListener('submit', async event => {
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: new URLSearchParams({datetime: document.getElementById('manual-datetime').value})
     });
-    message.textContent = 'Device date and time updated.';
+    message.textContent = t('time_updated');
     message.className = 'message ok';
     await refreshStatus();
   } catch (error) {
@@ -321,7 +467,7 @@ document.getElementById('schedule-form').addEventListener('submit', async event 
   const message = document.getElementById('schedule-message');
   const scheduleData = {};
   let enabledDays = 0;
-  DAY_NAMES.forEach((_, day) => {
+  I18N[currentLanguage].days.forEach((_, day) => {
     const enabled = document.getElementById(`day-${day}-enabled`).checked;
     if (enabled) enabledDays++;
     scheduleData[`day_${day}_enabled`] = enabled ? '1' : '0';
@@ -336,7 +482,7 @@ document.getElementById('schedule-form').addEventListener('submit', async event 
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: new URLSearchParams(scheduleData)
     });
-    message.textContent = enabledDays ? 'Daily schedules saved.' : 'Schedules saved with no enabled days.';
+    message.textContent = enabledDays ? t('schedules_saved') : t('schedules_saved_disabled');
     message.className = 'message ok';
     scheduleDirty = false;
     scheduleRevision = result.revision;
@@ -355,7 +501,7 @@ async function stopSequence() {
   button.disabled = true;
   try {
     await request('/api/schedule/stop', {method: 'POST'});
-    message.textContent = 'Irrigation stopped.';
+    message.textContent = t('irrigation_stopped');
     message.className = 'message ok';
     await refreshSchedule();
   } catch (error) {
@@ -380,7 +526,7 @@ document.getElementById('wifi-form').addEventListener('submit', async event => {
         password: document.getElementById('password').value
       })
     });
-    message.textContent = 'Connecting. This page may pause briefly; the direct access point will return automatically.';
+    message.textContent = t('connecting');
     message.className = 'message ok';
   } catch (error) {
     message.textContent = error.message;
@@ -390,7 +536,7 @@ document.getElementById('wifi-form').addEventListener('submit', async event => {
   }
 });
 
-buildDaySchedules();
+setLanguage(currentLanguage);
 document.getElementById('schedule-form').addEventListener('input', () => { scheduleDirty = true; });
 
 async function pollPortal() {
