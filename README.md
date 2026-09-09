@@ -10,7 +10,7 @@ Import it directly from ESPHome:
 
 ```yaml
 external_components:
-  - source: github://stegula/IrrigationSystem@v0.9.0
+  - source: github://stegula/IrrigationSystem@v0.9.1
     components:
       - persistent_web_portal
     refresh: 1h

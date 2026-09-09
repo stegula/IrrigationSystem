@@ -276,6 +276,9 @@ function setLanguage(language) {
   applyRelayStates(relayStates);
   if (lastStatusState) applyStatusState(lastStatusState);
   if (lastScheduleState) applyScheduleStatus(lastScheduleState);
+  document.querySelectorAll('[data-message-key]').forEach(element => {
+    element.textContent = t(element.dataset.messageKey);
+  });
   const ssid = document.getElementById('ssid');
   if (ssid.options.length === 1 && !ssid.value) ssid.options[0].textContent = t('press_scan');
 }
@@ -363,11 +366,13 @@ async function setRainSensorInstalled(installed) {
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: new URLSearchParams({installed: installed ? '1' : '0'})
     });
+    message.dataset.messageKey = 'rain_setting_saved';
     message.textContent = t('rain_setting_saved');
     message.className = 'message ok';
     await refreshStatus();
     await refreshSchedule();
   } catch (error) {
+    delete message.dataset.messageKey;
     input.checked = lastStatusState?.rain?.installed === true;
     message.textContent = error.message;
     message.className = 'message error';
