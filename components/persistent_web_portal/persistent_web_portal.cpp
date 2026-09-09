@@ -79,7 +79,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   <section>
     <h2 data-i18n="rain_sensor">Rain Sensor</h2>
     <div><strong data-i18n="status">Status:</strong> <span id="rain-status" class="rain-state">Loading...</span></div>
-    <p class="muted" data-i18n="rain_help">A closed contact between GPIO27 and GND is treated as rain.</p>
+    <p class="muted" data-i18n="rain_help">The rain input is monitored on GPIO27. Scheduled irrigation is skipped while rain is detected.</p>
   </section>
 
   <section>
@@ -151,7 +151,7 @@ const I18N = {
     title: 'Irrigation Controller', subtitle: 'Works directly through this device access point. Home Wi-Fi is optional.',
     zones: 'Zones', zone1: 'Zone 1', zone2: 'Zone 2', zone3: 'Zone 3', zone4: 'Zone 4', loading: 'Loading...',
     rain_sensor: 'Rain Sensor', rain_detected: 'Rain detected', rain_clear: 'No rain', rain_unavailable: 'Unavailable',
-    rain_help: 'A closed contact between GPIO27 and GND is treated as rain.',
+    rain_help: 'The rain input is monitored on GPIO27. Scheduled irrigation is skipped while rain is detected.',
     date_time: 'Date and Time', current: 'Current:', source: 'Source:', not_set: 'Not set', unavailable: 'Unavailable',
     time_help: 'Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.',
     manual_datetime: 'Manual current date and time', set_time: 'Set Time',
@@ -165,6 +165,7 @@ const I18N = {
     relay_on: 'ON', relay_off: 'OFF', connected_to: 'Connected to {ssid}', not_connected: 'Not connected',
     source_network: 'Internet (SNTP)', source_manual: 'Manual', source_system: 'System clock',
     watering: 'Zone {zone} running — {seconds}s remaining', delay: '10-second delay — {seconds}s remaining',
+    rain_paused: 'Paused due to rain — waiting for the next schedule',
     request_failed: 'Request failed ({status})', scanning: 'Scanning...', scan_pause: 'Scanning can briefly pause the direct connection.',
     no_networks: 'No networks found', secured: 'secured', open: 'open', found_networks: 'Found {count} network(s).',
     scan_failed: 'Scan failed ({status})', scan_failed_retry: 'Scan failed — try again',
@@ -178,7 +179,7 @@ const I18N = {
     title: 'Kontroler navodnjavanja', subtitle: 'Radi direktno preko pristupne tačke uređaja. Kućni Wi-Fi nije obavezan.',
     zones: 'Zone', zone1: 'Zona 1', zone2: 'Zona 2', zone3: 'Zona 3', zone4: 'Zona 4', loading: 'Učitavanje...',
     rain_sensor: 'Senzor kiše', rain_detected: 'Kiša je detektovana', rain_clear: 'Nema kiše', rain_unavailable: 'Nedostupno',
-    rain_help: 'Zatvoren kontakt između GPIO27 i GND označava kišu.',
+    rain_help: 'Ulaz senzora kiše prati se na GPIO27. Planirano navodnjavanje se preskače dok je kiša detektovana.',
     date_time: 'Datum i vreme', current: 'Trenutno:', source: 'Izvor:', not_set: 'Nije podešeno', unavailable: 'Nedostupno',
     time_help: 'Vreme se automatski usklađuje preko interneta kada je kućni Wi-Fi dostupan. Za rad bez interneta može se podesiti i ručno.',
     manual_datetime: 'Ručno podešavanje trenutnog datuma i vremena', set_time: 'Podesi vreme',
@@ -192,6 +193,7 @@ const I18N = {
     relay_on: 'UKLJUČENO', relay_off: 'ISKLJUČENO', connected_to: 'Povezano na {ssid}', not_connected: 'Nije povezano',
     source_network: 'Internet (SNTP)', source_manual: 'Ručno', source_system: 'Sistemski sat',
     watering: 'Zona {zone} radi — preostalo {seconds} s', delay: 'Pauza od 10 sekundi — preostalo {seconds} s',
+    rain_paused: 'Pauzirano zbog kiše — čeka se sledeći raspored',
     request_failed: 'Zahtev nije uspeo ({status})', scanning: 'Skeniranje...', scan_pause: 'Skeniranje može nakratko prekinuti direktnu vezu.',
     no_networks: 'Nijedna mreža nije pronađena', secured: 'zaštićena', open: 'otvorena', found_networks: 'Pronađeno mreža: {count}.',
     scan_failed: 'Skeniranje nije uspelo ({status})', scan_failed_retry: 'Skeniranje nije uspelo — pokušajte ponovo',
@@ -344,7 +346,9 @@ async function refreshStatus() {
 function applyScheduleStatus(state) {
   lastScheduleState = state;
   let sequenceText = t('idle');
-  if (state.phase === 'watering')
+  if (state.rain_paused)
+    sequenceText = t('rain_paused');
+  else if (state.phase === 'watering')
     sequenceText = t('watering', {zone: state.active_zone, seconds: state.remaining_seconds});
   else if (state.phase === 'delay')
     sequenceText = t('delay', {seconds: state.remaining_seconds});
@@ -592,6 +596,17 @@ void PersistentWebPortal::setup() {
   this->time_->add_on_time_sync_callback([this]() {
     this->time_source_ = TimeSource::NETWORK;
     ESP_LOGI(TAG, "Clock synchronized from the network");
+  });
+  this->rain_sensor_->add_on_state_callback([this](bool detected) {
+    if (detected) {
+      ESP_LOGI(TAG, "Rain detected; scheduled irrigation is paused");
+      if (this->sequence_phase_ != SequencePhase::IDLE) {
+        ESP_LOGI(TAG, "Stopping the active scheduled irrigation sequence due to rain");
+        this->stop_sequence_(true);
+      }
+    } else {
+      ESP_LOGI(TAG, "Rain cleared; the next scheduled irrigation may run");
+    }
   });
 
   this->wifi_->add_scan_results_listener(this);
@@ -854,7 +869,7 @@ void PersistentWebPortal::handle_status_() {
 
 void PersistentWebPortal::handle_schedule_state_() {
   String response;
-  response.reserve(900);
+  response.reserve(930);
   response += F("{\"revision\":");
   response += this->schedule_revision_;
   response += F(",\"days\":[");
@@ -893,6 +908,8 @@ void PersistentWebPortal::handle_schedule_state_() {
       remaining_seconds = (static_cast<uint32_t>(remaining_ms) + 999) / 1000;
   }
   response += remaining_seconds;
+  response += F(",\"rain_paused\":");
+  response += this->is_rain_detected_() ? F("true") : F("false");
   response += '}';
   this->server_.sendHeader("Cache-Control", "no-store");
   this->server_.send(200, "application/json", response);
@@ -1268,6 +1285,13 @@ void PersistentWebPortal::check_schedule_(uint32_t now_ms) {
     return;
 
   this->settings_.last_run_date = date_key;
+  if (this->is_rain_detected_()) {
+    if (!this->save_settings_())
+      ESP_LOGW(TAG, "Could not persist the rain-skipped irrigation date");
+    ESP_LOGI(TAG, "Scheduled irrigation skipped because rain is detected");
+    return;
+  }
+
   for (uint8_t zone = 0; zone < RELAY_COUNT; zone++)
     this->active_zone_minutes_[zone] = today.zone_minutes[zone];
   if (!this->save_settings_())
@@ -1359,6 +1383,10 @@ bool PersistentWebPortal::has_pending_zone_() const {
       return true;
   }
   return false;
+}
+
+bool PersistentWebPortal::is_rain_detected_() const {
+  return this->rain_sensor_ != nullptr && this->rain_sensor_->has_state() && this->rain_sensor_->state;
 }
 
 uint8_t PersistentWebPortal::weekday_index_(uint8_t day_of_week) {
@@ -1478,6 +1506,8 @@ String PersistentWebPortal::build_state_json_() const {
       remaining_seconds = (static_cast<uint32_t>(remaining_ms) + 999) / 1000;
   }
   response += remaining_seconds;
+  response += F(",\"rain_paused\":");
+  response += this->is_rain_detected_() ? F("true") : F("false");
   response += F("}}");
   return response;
 }

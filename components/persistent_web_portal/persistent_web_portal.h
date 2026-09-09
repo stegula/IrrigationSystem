@@ -107,6 +107,7 @@ class PersistentWebPortal final : public Component,
   void stop_sequence_(bool turn_off_relays);
   void turn_all_zones_off_();
   bool has_pending_zone_() const;
+  bool is_rain_detected_() const;
   static uint8_t weekday_index_(uint8_t day_of_week);
   static bool deadline_reached_(uint32_t now, uint32_t deadline);
   String build_state_json_() const;

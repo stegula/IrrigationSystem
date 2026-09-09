@@ -10,13 +10,13 @@ Import it directly from ESPHome:
 
 ```yaml
 external_components:
-  - source: github://stegula/IrrigationSystem@v0.7.0
+  - source: github://stegula/IrrigationSystem@v0.8.0
     components:
       - persistent_web_portal
     refresh: 1h
 ```
 
-The component requires a Wi-Fi component, an ESPHome real-time clock, a rain binary sensor, and four switch IDs. For a dry-contact rain sensor that closes to ground, configure GPIO27 with its internal pull-up and invert the input:
+The component requires a Wi-Fi component, an ESPHome real-time clock, a rain binary sensor, and four switch IDs. For the current dry-contact sensor wiring, configure GPIO27 with its internal pull-up. An open contact reports rain and a closed contact to GND reports no rain:
 
 ```yaml
 time:
@@ -34,7 +34,7 @@ binary_sensor:
       mode:
         input: true
         pullup: true
-      inverted: true
+      inverted: false
     filters:
       - delayed_on: 250ms
       - delayed_off: 250ms
@@ -50,7 +50,7 @@ persistent_web_portal:
     - relay_4
 ```
 
-The rain input is informational in `v0.7.0`; it is displayed on both the AP and home-network portal but does not alter irrigation operation.
+In `v0.8.0`, rain immediately stops an active scheduled sequence and skips any schedule reached while rain remains detected. The skipped or interrupted occurrence is not restarted; once the input clears, the controller waits for the next configured schedule. Manual zone controls remain available.
 
 Schedules are stored in ESP flash and run locally. When upgrading from `v0.3.0`, the shared schedule is copied into every weekday that was previously selected. The software clock continues without internet while the ESP32 remains powered; a full power loss requires SNTP or manual time setup unless external battery-backed RTC hardware is added.
 
