@@ -31,6 +31,9 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
     .status { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 8px; }
     .relays { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 12px; }
     .relay { border: 1px solid #4b5563; border-radius: 12px; padding: 14px; text-align: center; }
+    .rain-state { font-size: 1.2rem; font-weight: 700; }
+    .rain-state.clear { color: #6ee7b7; }
+    .rain-state.detected { color: #93c5fd; }
     button, select, input { box-sizing: border-box; width: 100%; min-height: 44px; border-radius: 9px; border: 1px solid #6b7280; padding: 9px 12px; font: inherit; }
     button { cursor: pointer; color: white; background: #2563eb; border-color: #2563eb; font-weight: 650; }
     button.off { background: #4b5563; border-color: #4b5563; }
@@ -71,6 +74,12 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="relay"><h3 data-i18n="zone3">Zone 3</h3><button id="r3" onclick="toggleRelay(3)">Loading...</button></div>
       <div class="relay"><h3 data-i18n="zone4">Zone 4</h3><button id="r4" onclick="toggleRelay(4)">Loading...</button></div>
     </div>
+  </section>
+
+  <section>
+    <h2 data-i18n="rain_sensor">Rain Sensor</h2>
+    <div><strong data-i18n="status">Status:</strong> <span id="rain-status" class="rain-state">Loading...</span></div>
+    <p class="muted" data-i18n="rain_help">A closed contact between GPIO27 and GND is treated as rain.</p>
   </section>
 
   <section>
@@ -141,6 +150,8 @@ const I18N = {
   en: {
     title: 'Irrigation Controller', subtitle: 'Works directly through this device access point. Home Wi-Fi is optional.',
     zones: 'Zones', zone1: 'Zone 1', zone2: 'Zone 2', zone3: 'Zone 3', zone4: 'Zone 4', loading: 'Loading...',
+    rain_sensor: 'Rain Sensor', rain_detected: 'Rain detected', rain_clear: 'No rain', rain_unavailable: 'Unavailable',
+    rain_help: 'A closed contact between GPIO27 and GND is treated as rain.',
     date_time: 'Date and Time', current: 'Current:', source: 'Source:', not_set: 'Not set', unavailable: 'Unavailable',
     time_help: 'Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.',
     manual_datetime: 'Manual current date and time', set_time: 'Set Time',
@@ -166,6 +177,8 @@ const I18N = {
   sr: {
     title: 'Kontroler navodnjavanja', subtitle: 'Radi direktno preko pristupne tačke uređaja. Kućni Wi-Fi nije obavezan.',
     zones: 'Zone', zone1: 'Zona 1', zone2: 'Zona 2', zone3: 'Zona 3', zone4: 'Zona 4', loading: 'Učitavanje...',
+    rain_sensor: 'Senzor kiše', rain_detected: 'Kiša je detektovana', rain_clear: 'Nema kiše', rain_unavailable: 'Nedostupno',
+    rain_help: 'Zatvoren kontakt između GPIO27 i GND označava kišu.',
     date_time: 'Datum i vreme', current: 'Trenutno:', source: 'Izvor:', not_set: 'Nije podešeno', unavailable: 'Nedostupno',
     time_help: 'Vreme se automatski usklađuje preko interneta kada je kućni Wi-Fi dostupan. Za rad bez interneta može se podesiti i ručno.',
     manual_datetime: 'Ručno podešavanje trenutnog datuma i vremena', set_time: 'Podesi vreme',
@@ -301,6 +314,12 @@ async function request(url, options) {
 
 function applyStatusState(state) {
   lastStatusState = state;
+  const rainStatus = document.getElementById('rain-status');
+  const rainAvailable = state.rain?.available === true;
+  const rainDetected = rainAvailable && state.rain.detected === true;
+  rainStatus.textContent = rainAvailable ? (rainDetected ? t('rain_detected') : t('rain_clear')) : t('rain_unavailable');
+  rainStatus.classList.toggle('detected', rainDetected);
+  rainStatus.classList.toggle('clear', rainAvailable && !rainDetected);
   document.getElementById('wifi-status').textContent = state.wifi.connected ? t('connected_to', {ssid: state.wifi.ssid}) : t('not_connected');
   document.getElementById('sta-ip').textContent = state.wifi.sta_ip || '—';
   document.getElementById('ap-ip').textContent = state.wifi.ap_ip || '192.168.4.1';
@@ -559,7 +578,8 @@ void PersistentWebPortal::add_relay(switch_::Switch *relay) {
 }
 
 void PersistentWebPortal::setup() {
-  if (this->wifi_ == nullptr || this->time_ == nullptr || this->relay_count_ != RELAY_COUNT) {
+  if (this->wifi_ == nullptr || this->time_ == nullptr || this->rain_sensor_ == nullptr ||
+      this->relay_count_ != RELAY_COUNT) {
     ESP_LOGE(TAG, "Invalid configuration");
     this->mark_failed();
     return;
@@ -676,8 +696,9 @@ void PersistentWebPortal::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "Persistent Web Portal:\n"
                 "  URL: http://192.168.4.1/\n"
-                "  Relays: %u",
-                this->relay_count_);
+                "  Relays: %u\n"
+                "  Rain sensor: %s",
+                this->relay_count_, this->rain_sensor_ != nullptr ? "configured" : "missing");
 }
 
 void PersistentWebPortal::ensure_ap_() {
@@ -777,8 +798,13 @@ void PersistentWebPortal::handle_state_() {
 
 void PersistentWebPortal::handle_status_() {
   String response;
-  response.reserve(320);
-  response += F("{\"wifi\":{\"connected\":");
+  response.reserve(384);
+  response += F("{\"rain\":{\"available\":");
+  const bool rain_available = this->rain_sensor_ != nullptr && this->rain_sensor_->has_state();
+  response += rain_available ? F("true") : F("false");
+  response += F(",\"detected\":");
+  response += rain_available && this->rain_sensor_->state ? F("true") : F("false");
+  response += F("},\"wifi\":{\"connected\":");
   const bool connected = this->wifi_->is_connected();
   response += connected ? F("true") : F("false");
   response += F(",\"ssid\":");
@@ -1356,14 +1382,19 @@ void PersistentWebPortal::handle_not_found_() {
 
 String PersistentWebPortal::build_state_json_() const {
   String response;
-  response.reserve(1400);
+  response.reserve(1480);
   response += F("{\"relays\":[");
   for (uint8_t i = 0; i < RELAY_COUNT; i++) {
     if (i != 0)
       response += ',';
     response += this->relays_[i]->state ? F("true") : F("false");
   }
-  response += F("],\"wifi\":{\"connected\":");
+  response += F("],\"rain\":{\"available\":");
+  const bool rain_available = this->rain_sensor_ != nullptr && this->rain_sensor_->has_state();
+  response += rain_available ? F("true") : F("false");
+  response += F(",\"detected\":");
+  response += rain_available && this->rain_sensor_->state ? F("true") : F("false");
+  response += F("},\"wifi\":{\"connected\":");
   const bool connected = this->wifi_->is_connected();
   response += connected ? F("true") : F("false");
   response += F(",\"ssid\":");

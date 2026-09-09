@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/components/wifi/wifi_component.h"
@@ -23,6 +24,7 @@ class PersistentWebPortal final : public Component,
  public:
   void set_wifi(wifi::WiFiComponent *wifi) { this->wifi_ = wifi; }
   void set_time(time::RealTimeClock *time) { this->time_ = time; }
+  void set_rain_sensor(binary_sensor::BinarySensor *rain_sensor) { this->rain_sensor_ = rain_sensor; }
   void add_relay(switch_::Switch *relay);
 
   void setup() override;
@@ -113,6 +115,7 @@ class PersistentWebPortal final : public Component,
 
   wifi::WiFiComponent *wifi_{nullptr};
   time::RealTimeClock *time_{nullptr};
+  binary_sensor::BinarySensor *rain_sensor_{nullptr};
   std::array<switch_::Switch *, RELAY_COUNT> relays_{};
   uint8_t relay_count_{0};
   ESPPreferenceObject schedule_pref_;

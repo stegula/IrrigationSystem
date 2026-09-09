@@ -1,6 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import switch, time, wifi
+from esphome.components import binary_sensor, switch, time, wifi
 from esphome.const import CONF_ID
 
 
@@ -9,6 +9,7 @@ CODEOWNERS = []
 
 CONF_WIFI_ID = "wifi_id"
 CONF_TIME_ID = "time_id"
+CONF_RAIN_SENSOR_ID = "rain_sensor_id"
 CONF_RELAYS = "relays"
 
 persistent_web_portal_ns = cg.esphome_ns.namespace("persistent_web_portal")
@@ -30,6 +31,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(): cv.declare_id(PersistentWebPortal),
             cv.GenerateID(CONF_WIFI_ID): cv.use_id(wifi.WiFiComponent),
             cv.GenerateID(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
+            cv.GenerateID(CONF_RAIN_SENSOR_ID): cv.use_id(binary_sensor.BinarySensor),
             cv.Required(CONF_RELAYS): _exactly_four_relays,
         }
     ).extend(cv.COMPONENT_SCHEMA),
@@ -57,6 +59,9 @@ async def to_code(config):
 
     time_var = await cg.get_variable(config[CONF_TIME_ID])
     cg.add(var.set_time(time_var))
+
+    rain_sensor_var = await cg.get_variable(config[CONF_RAIN_SENSOR_ID])
+    cg.add(var.set_rain_sensor(rain_sensor_var))
 
     for relay_id in config[CONF_RELAYS]:
         relay = await cg.get_variable(relay_id)
