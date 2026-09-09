@@ -10,7 +10,7 @@ Import it directly from ESPHome:
 
 ```yaml
 external_components:
-  - source: github://stegula/IrrigationSystem@v0.8.0
+  - source: github://stegula/IrrigationSystem@v0.9.0
     components:
       - persistent_web_portal
     refresh: 1h
@@ -50,7 +50,7 @@ persistent_web_portal:
     - relay_4
 ```
 
-In `v0.8.0`, rain immediately stops an active scheduled sequence and skips any schedule reached while rain remains detected. The skipped or interrupted occurrence is not restarted; once the input clears, the controller waits for the next configured schedule. Manual zone controls remain available.
+In `v0.9.0`, the portal includes a persistent **Rain sensor installed?** toggle on both network interfaces. When enabled, rain immediately stops an active scheduled sequence and skips any schedule reached while rain remains detected. The skipped or interrupted occurrence is not restarted; once the input clears, the controller waits for the next configured schedule. When disabled, rain readings are ignored. Manual zone controls remain available in either mode.
 
 Schedules are stored in ESP flash and run locally. When upgrading from `v0.3.0`, the shared schedule is copied into every weekday that was previously selected. The software clock continues without internet while the ESP32 remains powered; a full power loss requires SNTP or manual time setup unless external battery-backed RTC hardware is added.
 

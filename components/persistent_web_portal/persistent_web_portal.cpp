@@ -78,8 +78,12 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 
   <section>
     <h2 data-i18n="rain_sensor">Rain Sensor</h2>
+    <label class="enable-row">
+      <input id="rain-installed" type="checkbox" onchange="setRainSensorInstalled(this.checked)">
+      <span data-i18n="rain_installed_question">Rain sensor installed?</span>
+    </label>
     <div><strong data-i18n="status">Status:</strong> <span id="rain-status" class="rain-state">Loading...</span></div>
-    <p class="muted" data-i18n="rain_help">The rain input is monitored on GPIO27. Scheduled irrigation is skipped while rain is detected.</p>
+    <div id="rain-message" class="message muted"></div>
   </section>
 
   <section>
@@ -150,8 +154,8 @@ const I18N = {
   en: {
     title: 'Irrigation Controller', subtitle: 'Works directly through this device access point. Home Wi-Fi is optional.',
     zones: 'Zones', zone1: 'Zone 1', zone2: 'Zone 2', zone3: 'Zone 3', zone4: 'Zone 4', loading: 'Loading...',
-    rain_sensor: 'Rain Sensor', rain_detected: 'Rain detected', rain_clear: 'No rain', rain_unavailable: 'Unavailable',
-    rain_help: 'The rain input is monitored on GPIO27. Scheduled irrigation is skipped while rain is detected.',
+    rain_sensor: 'Rain Sensor', rain_installed_question: 'Rain sensor installed?', rain_detected: 'Rain detected',
+    rain_clear: 'No rain', rain_disabled: 'Disabled', rain_unavailable: 'Unavailable', rain_setting_saved: 'Rain sensor setting saved.',
     date_time: 'Date and Time', current: 'Current:', source: 'Source:', not_set: 'Not set', unavailable: 'Unavailable',
     time_help: 'Time synchronizes automatically over the internet when home Wi-Fi is available. It can also be set manually for offline use.',
     manual_datetime: 'Manual current date and time', set_time: 'Set Time',
@@ -178,8 +182,8 @@ const I18N = {
   sr: {
     title: 'Kontroler navodnjavanja', subtitle: 'Radi direktno preko pristupne tačke uređaja. Kućni Wi-Fi nije obavezan.',
     zones: 'Zone', zone1: 'Zona 1', zone2: 'Zona 2', zone3: 'Zona 3', zone4: 'Zona 4', loading: 'Učitavanje...',
-    rain_sensor: 'Senzor kiše', rain_detected: 'Kiša je detektovana', rain_clear: 'Nema kiše', rain_unavailable: 'Nedostupno',
-    rain_help: 'Ulaz senzora kiše prati se na GPIO27. Planirano navodnjavanje se preskače dok je kiša detektovana.',
+    rain_sensor: 'Senzor kiše', rain_installed_question: 'Senzor kiše je ugrađen?', rain_detected: 'Kiša je detektovana',
+    rain_clear: 'Nema kiše', rain_disabled: 'Isključeno', rain_unavailable: 'Nedostupno', rain_setting_saved: 'Podešavanje senzora kiše je sačuvano.',
     date_time: 'Datum i vreme', current: 'Trenutno:', source: 'Izvor:', not_set: 'Nije podešeno', unavailable: 'Nedostupno',
     time_help: 'Vreme se automatski usklađuje preko interneta kada je kućni Wi-Fi dostupan. Za rad bez interneta može se podesiti i ručno.',
     manual_datetime: 'Ručno podešavanje trenutnog datuma i vremena', set_time: 'Podesi vreme',
@@ -215,6 +219,9 @@ const SERVER_ERRORS_SR = {
   'channel and state are required': 'Kanal i stanje su obavezni.',
   'channel must be between 1 and 4': 'Kanal mora biti između 1 i 4.',
   'state must be on or off': 'Stanje mora biti uključeno ili isključeno.',
+  'installed is required': 'Podatak o ugrađenom senzoru je obavezan.',
+  'installed must be 0 or 1': 'Podešavanje senzora mora biti 0 ili 1.',
+  'Could not save the rain sensor setting': 'Podešavanje senzora kiše nije moglo da se sačuva.',
   'Please wait before starting another Wi-Fi scan': 'Sačekajte pre pokretanja novog Wi-Fi skeniranja.',
   'Wi-Fi scan could not start; try again shortly': 'Wi-Fi skeniranje nije moglo da se pokrene; pokušajte ponovo uskoro.',
   'ssid and password are required': 'Naziv mreže i lozinka su obavezni.',
@@ -317,9 +324,12 @@ async function request(url, options) {
 function applyStatusState(state) {
   lastStatusState = state;
   const rainStatus = document.getElementById('rain-status');
-  const rainAvailable = state.rain?.available === true;
+  const rainInstalled = state.rain?.installed === true;
+  const rainAvailable = rainInstalled && state.rain?.available === true;
   const rainDetected = rainAvailable && state.rain.detected === true;
-  rainStatus.textContent = rainAvailable ? (rainDetected ? t('rain_detected') : t('rain_clear')) : t('rain_unavailable');
+  document.getElementById('rain-installed').checked = rainInstalled;
+  rainStatus.textContent = !rainInstalled ? t('rain_disabled') :
+    (rainAvailable ? (rainDetected ? t('rain_detected') : t('rain_clear')) : t('rain_unavailable'));
   rainStatus.classList.toggle('detected', rainDetected);
   rainStatus.classList.toggle('clear', rainAvailable && !rainDetected);
   document.getElementById('wifi-status').textContent = state.wifi.connected ? t('connected_to', {ssid: state.wifi.ssid}) : t('not_connected');
@@ -341,6 +351,29 @@ async function refreshStatus() {
     }
 
   } catch (_) {}
+}
+
+async function setRainSensorInstalled(installed) {
+  const input = document.getElementById('rain-installed');
+  const message = document.getElementById('rain-message');
+  input.disabled = true;
+  try {
+    await request('/api/rain/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({installed: installed ? '1' : '0'})
+    });
+    message.textContent = t('rain_setting_saved');
+    message.className = 'message ok';
+    await refreshStatus();
+    await refreshSchedule();
+  } catch (error) {
+    input.checked = lastStatusState?.rain?.installed === true;
+    message.textContent = error.message;
+    message.className = 'message error';
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function applyScheduleStatus(state) {
@@ -590,6 +623,10 @@ void PersistentWebPortal::setup() {
   }
 
   this->schedule_pref_ = global_preferences->make_preference<ScheduleSettings>(SETTINGS_KEY, true);
+  this->rain_sensor_installed_pref_ = global_preferences->make_preference<bool>(RAIN_SENSOR_INSTALLED_KEY, true);
+  bool saved_rain_sensor_installed = true;
+  if (this->rain_sensor_installed_pref_.load(&saved_rain_sensor_installed))
+    this->rain_sensor_installed_ = saved_rain_sensor_installed;
   this->load_settings_();
   if (this->time_->now().is_valid())
     this->time_source_ = TimeSource::SYSTEM;
@@ -598,6 +635,8 @@ void PersistentWebPortal::setup() {
     ESP_LOGI(TAG, "Clock synchronized from the network");
   });
   this->rain_sensor_->add_on_state_callback([this](bool detected) {
+    if (!this->rain_sensor_installed_)
+      return;
     if (detected) {
       ESP_LOGI(TAG, "Rain detected; scheduled irrigation is paused");
       if (this->sequence_phase_ != SequencePhase::IDLE) {
@@ -620,6 +659,7 @@ void PersistentWebPortal::setup() {
   this->server_.on("/api/schedule", HTTP_GET, [this]() { this->handle_schedule_state_(); });
   this->server_.on("/api/relays", HTTP_GET, [this]() { this->handle_relays_(); });
   this->server_.on("/api/relay", HTTP_POST, [this]() { this->handle_relay_(); });
+  this->server_.on("/api/rain/config", HTTP_POST, [this]() { this->handle_rain_config_(); });
   this->server_.on("/api/wifi/scan", HTTP_GET, [this]() { this->handle_wifi_scan_(); });
   this->server_.on("/api/wifi/connect", HTTP_POST, [this]() { this->handle_wifi_connect_(); });
   this->server_.on("/api/wifi/forget", HTTP_POST, [this]() { this->handle_wifi_forget_(); });
@@ -712,8 +752,10 @@ void PersistentWebPortal::dump_config() {
                 "Persistent Web Portal:\n"
                 "  URL: http://192.168.4.1/\n"
                 "  Relays: %u\n"
-                "  Rain sensor: %s",
-                this->relay_count_, this->rain_sensor_ != nullptr ? "configured" : "missing");
+                "  Rain sensor: %s\n"
+                "  Rain interlock: %s",
+                this->relay_count_, this->rain_sensor_ != nullptr ? "configured" : "missing",
+                this->rain_sensor_installed_ ? "enabled" : "disabled");
 }
 
 void PersistentWebPortal::ensure_ap_() {
@@ -814,7 +856,9 @@ void PersistentWebPortal::handle_state_() {
 void PersistentWebPortal::handle_status_() {
   String response;
   response.reserve(384);
-  response += F("{\"rain\":{\"available\":");
+  response += F("{\"rain\":{\"installed\":");
+  response += this->rain_sensor_installed_ ? F("true") : F("false");
+  response += F(",\"available\":");
   const bool rain_available = this->rain_sensor_ != nullptr && this->rain_sensor_->has_state();
   response += rain_available ? F("true") : F("false");
   response += F(",\"detected\":");
@@ -958,6 +1002,38 @@ void PersistentWebPortal::handle_relay_() {
 
   String response = F("{\"ok\":true,\"state\":");
   response += relay->state ? F("true") : F("false");
+  response += '}';
+  this->server_.send(200, "application/json", response);
+}
+
+void PersistentWebPortal::handle_rain_config_() {
+  if (!this->server_.hasArg("installed")) {
+    this->send_json_error_(400, "installed is required");
+    return;
+  }
+
+  const String value = this->server_.arg("installed");
+  if (value != "0" && value != "1") {
+    this->send_json_error_(400, "installed must be 0 or 1");
+    return;
+  }
+
+  const bool previous = this->rain_sensor_installed_;
+  this->rain_sensor_installed_ = value == "1";
+  if (!this->rain_sensor_installed_pref_.save(&this->rain_sensor_installed_)) {
+    this->rain_sensor_installed_ = previous;
+    this->send_json_error_(500, "Could not save the rain sensor setting");
+    return;
+  }
+
+  if (this->is_rain_detected_() && this->sequence_phase_ != SequencePhase::IDLE) {
+    ESP_LOGI(TAG, "Stopping the active scheduled irrigation sequence because the rain interlock was enabled");
+    this->stop_sequence_(true);
+  }
+  ESP_LOGI(TAG, "Rain sensor interlock %s", this->rain_sensor_installed_ ? "enabled" : "disabled");
+
+  String response = F("{\"ok\":true,\"installed\":");
+  response += this->rain_sensor_installed_ ? F("true") : F("false");
   response += '}';
   this->server_.send(200, "application/json", response);
 }
@@ -1386,7 +1462,8 @@ bool PersistentWebPortal::has_pending_zone_() const {
 }
 
 bool PersistentWebPortal::is_rain_detected_() const {
-  return this->rain_sensor_ != nullptr && this->rain_sensor_->has_state() && this->rain_sensor_->state;
+  return this->rain_sensor_installed_ && this->rain_sensor_ != nullptr && this->rain_sensor_->has_state() &&
+         this->rain_sensor_->state;
 }
 
 uint8_t PersistentWebPortal::weekday_index_(uint8_t day_of_week) {
@@ -1417,7 +1494,9 @@ String PersistentWebPortal::build_state_json_() const {
       response += ',';
     response += this->relays_[i]->state ? F("true") : F("false");
   }
-  response += F("],\"rain\":{\"available\":");
+  response += F("],\"rain\":{\"installed\":");
+  response += this->rain_sensor_installed_ ? F("true") : F("false");
+  response += F(",\"available\":");
   const bool rain_available = this->rain_sensor_ != nullptr && this->rain_sensor_->has_state();
   response += rain_available ? F("true") : F("false");
   response += F(",\"detected\":");

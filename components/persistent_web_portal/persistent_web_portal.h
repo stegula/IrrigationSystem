@@ -47,6 +47,7 @@ class PersistentWebPortal final : public Component,
   static constexpr uint8_t NO_ZONE = 0xFF;
   static constexpr uint32_t LEGACY_SETTINGS_KEY = 0x49525247UL;
   static constexpr uint32_t SETTINGS_KEY = 0x49525248UL;
+  static constexpr uint32_t RAIN_SENSOR_INSTALLED_KEY = 0x5241494EUL;
 
   enum class SequencePhase : uint8_t { IDLE, RUNNING_ZONE, WAITING_GAP };
   enum class TimeSource : uint8_t { NONE, SYSTEM, MANUAL, NETWORK };
@@ -89,6 +90,7 @@ class PersistentWebPortal final : public Component,
   void handle_schedule_state_();
   void handle_relays_();
   void handle_relay_();
+  void handle_rain_config_();
   void handle_wifi_scan_();
   void handle_wifi_connect_();
   void handle_wifi_forget_();
@@ -120,7 +122,9 @@ class PersistentWebPortal final : public Component,
   std::array<switch_::Switch *, RELAY_COUNT> relays_{};
   uint8_t relay_count_{0};
   ESPPreferenceObject schedule_pref_;
+  ESPPreferenceObject rain_sensor_installed_pref_;
   ScheduleSettings settings_{};
+  bool rain_sensor_installed_{true};
   uint32_t schedule_revision_{1};
 
   ::WebServer server_{80};
